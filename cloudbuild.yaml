@@ -1,0 +1,13 @@
+steps:
+  - name: gcr.io/kaniko-project/executor:latest
+    args:
+      - --destination=$_IMAGE
+      - --cache=true
+      - --cache-ttl=168h   # reuse layers for 7 days
+      - --compressed-caching=false
+
+substitutions:
+  _IMAGE: asia-south1-docker.pkg.dev/gen-lang-client-0533266855/stock-intelligence/stock-intelligence:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

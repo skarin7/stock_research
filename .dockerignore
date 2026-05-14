@@ -1,0 +1,10 @@
+venv/
+output/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+*.egg-info/
+=2.9.0

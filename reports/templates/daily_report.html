@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Stock Intelligence — {{ report_date }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #222; }
+  h1 { color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 8px; }
+  h2 { color: #283593; margin-top: 32px; }
+  .meta { color: #666; font-size: 0.9em; margin-bottom: 24px; }
+  .summary-box { background: #fff; border-left: 4px solid #1a237e; padding: 16px 20px; border-radius: 4px; margin-bottom: 28px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.12); margin-bottom: 32px; }
+  th { background: #1a237e; color: #fff; padding: 10px 12px; text-align: left; font-size: 0.85em; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 0.88em; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) { background: #f9f9f9; }
+  .score-high { color: #2e7d32; font-weight: bold; }
+  .score-mid  { color: #e65100; font-weight: bold; }
+  .score-low  { color: #c62828; font-weight: bold; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.78em; font-weight: 600; }
+  .badge-buy { background: #e8f5e9; color: #2e7d32; }
+  .badge-sell { background: #ffebee; color: #c62828; }
+  .earnings-flag { background: #fff3e0; color: #e65100; padding: 3px 8px; border-radius: 4px; font-size: 0.78em; font-weight: 600; }
+  .stock-card { background: #fff; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  .stock-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+  .stock-rank { font-size: 1.5em; font-weight: 800; color: #1a237e; min-width: 36px; }
+  .stock-title { font-size: 1.1em; font-weight: 700; }
+  .stock-ticker { font-size: 0.9em; color: #555; }
+  .signal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+  .signal-item { background: #f5f5f5; border-radius: 4px; padding: 8px 12px; }
+  .signal-name { font-size: 0.75em; text-transform: uppercase; color: #555; letter-spacing: .5px; }
+  .signal-score { font-size: 1.1em; font-weight: 700; }
+  .signal-reason { font-size: 0.78em; color: #444; margin-top: 2px; }
+  .rationale { margin-top: 12px; font-size: 0.88em; color: #333; background: #f0f4ff; padding: 10px 14px; border-radius: 4px; }
+  .risk-flags { margin-top: 8px; }
+  .risk-flag { display: inline-block; background: #fff3e0; color: #e65100; border-radius: 4px; padding: 2px 8px; font-size: 0.78em; margin-right: 6px; }
+  footer { margin-top: 40px; font-size: 0.8em; color: #999; text-align: center; }
+</style>
+</head>
+<body>
+<h1>NSE/BSE Stock Intelligence Report</h1>
+<div class="meta">Generated: {{ generated_at }} | Trading Date: {{ report_date }} | Stocks screened: {{ total_screened }} | Stocks scored: {{ total_scored }}</div>
+
+<div class="summary-box">
+  <strong>Executive Summary</strong><br>
+  {{ narrative | safe if narrative else "Top-10 deep-dive narrative not available." }}
+</div>
+
+<h2>Top {{ stocks | length }} Stocks — Ranked Watchlist</h2>
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>Ticker</th><th>Company</th><th>Score</th>
+      <th>News</th><th>Bulk Deals</th><th>Momentum</th><th>Value</th>
+      <th>Delivery%</th><th>52W Pos</th><th>Inst. Trend</th><th>Sector</th>
+      <th>Earnings?</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in stocks %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><strong>{{ s.ticker }}</strong></td>
+      <td>{{ s.company | default('') }}</td>
+      <td class="{{ 'score-high' if s.composite_score >= 7 else ('score-mid' if s.composite_score >= 5 else 'score-low') }}">
+        {{ "%.1f" | format(s.composite_score) }}
+      </td>
+      {% for sig in ['news_sentiment','bulk_deals','momentum','value','delivery_pct','52w_position','institutional_trend','sector_rotation'] %}
+        <td>{{ s.signals[sig].score if s.signals and s.signals[sig] else '-' }}</td>
+      {% endfor %}
+      <td>{% if s.earnings_proximity %}<span class="earnings-flag">HIGH NOISE</span>{% else %}No{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Detailed Signal Breakdown</h2>
+{% for s in stocks %}
+<div class="stock-card">
+  <div class="stock-header">
+    <div class="stock-rank">#{{ loop.index }}</div>
+    <div>
+      <div class="stock-title">{{ s.company | default(s.ticker) }}</div>
+      <div class="stock-ticker">{{ s.ticker }}
+        {% if s.earnings_proximity %}&nbsp;<span class="earnings-flag">EARNINGS NEAR — HIGH NOISE</span>{% endif %}
+      </div>
+    </div>
+    <div style="margin-left:auto">
+      <span class="{{ 'score-high' if s.composite_score >= 7 else ('score-mid' if s.composite_score >= 5 else 'score-low') }}" style="font-size:1.6em">
+        {{ "%.1f" | format(s.composite_score) }}/10
+      </span>
+    </div>
+  </div>
+
+  <div class="signal-grid">
+    {% for sig_key, sig_label in [
+        ('news_sentiment','News Sentiment'),('bulk_deals','Bulk Deals'),
+        ('momentum','Momentum'),('value','Value'),
+        ('delivery_pct','Delivery %'),('52w_position','52W Position'),
+        ('institutional_trend','Institutional'),('sector_rotation','Sector Rotation')] %}
+    {% if s.signals and s.signals[sig_key] %}
+    <div class="signal-item">
+      <div class="signal-name">{{ sig_label }}</div>
+      <div class="signal-score {{ 'score-high' if s.signals[sig_key].score >= 7 else ('score-mid' if s.signals[sig_key].score >= 5 else 'score-low') }}">
+        {{ s.signals[sig_key].score }}/10
+      </div>
+      <div class="signal-reason">{{ s.signals[sig_key].reason }}</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if s.investment_rationale %}
+  <div class="rationale"><strong>Rationale:</strong> {{ s.investment_rationale }}</div>
+  {% endif %}
+
+  {% if s.risk_flags %}
+  <div class="risk-flags">
+    {% for flag in s.risk_flags %}<span class="risk-flag">⚠ {{ flag }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<footer>
+  NSE/BSE Stock Intelligence System &bull; Signals are informational only and do not constitute financial advice.<br>
+  Do not deploy capital until backtest win rate &gt;55% and positive alpha vs Nifty 50 over 20+ trading days.
+</footer>
+</body>
+</html>
