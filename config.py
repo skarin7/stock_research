@@ -16,9 +16,13 @@ GROWW_API_SECRET = os.environ.get("GROWW_API_SECRET", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-SCREENER_EMAIL = os.environ["SCREENER_EMAIL"]
-SCREENER_PASSWORD = os.environ["SCREENER_PASSWORD"]
-SCREENER_SCREEN_ID = os.environ["SCREENER_SCREEN_ID"]
+# --- Stock universe source ---
+# "nifty50" | "nifty100" | "nifty200" | "nifty500" | "screener"
+STOCK_UNIVERSE = os.environ.get("STOCK_UNIVERSE", "nifty200")
+
+SCREENER_EMAIL = os.environ.get("SCREENER_EMAIL", "")
+SCREENER_PASSWORD = os.environ.get("SCREENER_PASSWORD", "")
+SCREENER_SCREEN_ID = os.environ.get("SCREENER_SCREEN_ID", "")
 SCREENER_SCREEN_SLUG = os.environ.get("SCREENER_SCREEN_SLUG", "")  # optional slug from URL
 
 # --- Models ---

@@ -33,18 +33,38 @@ def main():
     report_date = date.fromisoformat(args.date) if args.date else date.today()
     logger.info("=== Stock Intelligence Pipeline starting | date=%s dry_run=%s ===", report_date, args.dry_run)
 
-    # ── Stage 1: Screener.in quantitative filter ──────────────────────────────
-    logger.info("STAGE 1: Screener.in quantitative filter")
-    from scrapers.screener_scraper import ScreenerScraper
-    scraper = ScreenerScraper()
-    stocks = scraper.fetch_screen()
-    logger.info("Stage 1 complete: %d stocks passed filter", len(stocks))
+    # ── Stage 1: Stock universe fetch ─────────────────────────────────────────
+    universe = config.STOCK_UNIVERSE.lower()
+    logger.info("STAGE 1: Stock universe fetch (source=%s)", universe)
 
-    # Drop BSE-only stocks — their symbols are purely numeric (e.g. 530929); NSE tickers are alphabetical
-    before = len(stocks)
-    stocks = [s for s in stocks if not s["symbol"].isdigit()]
-    if len(stocks) < before:
-        logger.info("Dropped %d BSE-only (numeric) symbols — %d remain", before - len(stocks), len(stocks))
+    # Load persistent skip list (stocks with no price data on previous runs)
+    import json as _json
+    skip_list_path = Path(config.OUTPUT_DIR) / "skip_list.json"
+    skip_list_path.parent.mkdir(parents=True, exist_ok=True)
+    skip_list: dict = {}
+    if skip_list_path.exists():
+        skip_list = _json.loads(skip_list_path.read_text())
+        logger.info("Skip list loaded: %d symbols will be excluded", len(skip_list))
+
+    if universe == "screener":
+        from scrapers.screener_scraper import ScreenerScraper
+        stocks = ScreenerScraper().fetch_screen()
+        # Drop BSE-only stocks (purely numeric symbols e.g. 530929)
+        before = len(stocks)
+        stocks = [s for s in stocks if not s["symbol"].isdigit()]
+        if len(stocks) < before:
+            logger.info("Dropped %d BSE-only (numeric) symbols — %d remain", before - len(stocks), len(stocks))
+    else:
+        from scrapers.nse_index import fetch_index_stocks
+        stocks = fetch_index_stocks(universe)
+
+    # Apply skip list
+    if skip_list:
+        before = len(stocks)
+        stocks = [s for s in stocks if s["symbol"] not in skip_list]
+        logger.info("Skipped %d symbols from skip list — %d remain", before - len(stocks), len(stocks))
+
+    logger.info("Stage 1 complete: %d stocks in universe", len(stocks))
 
     total_screened = len(stocks)
 
@@ -101,7 +121,17 @@ def main():
     logger.info("STAGE 3: Groww API enrichment (%d stocks)", len(stocks))
     from enrichment.groww_client import enrich_stocks
     stocks = enrich_stocks(stocks)
-    logger.info("Stage 3 complete")
+
+    # Save stocks with no price data to skip list for future runs
+    no_data = [s["symbol"] for s in stocks if s.get("no_data")]
+    if no_data:
+        for sym in no_data:
+            skip_list[sym] = str(report_date)
+        skip_list_path.write_text(_json.dumps(skip_list, indent=2))
+        logger.warning("Added %d symbols to skip list (no price data): %s", len(no_data), no_data)
+
+    stocks = [s for s in stocks if not s.get("no_data")]
+    logger.info("Stage 3 complete: %d stocks with valid price data", len(stocks))
 
     # ── Stage 4: News fetch + macro context ──────────────────────────────────
     logger.info("STAGE 4: News fetch (RSS) + macro context (Gemini)")

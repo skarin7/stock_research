@@ -13,6 +13,8 @@
 
 set -euo pipefail
 
+SCRIPT_START=$(date +%s)
+
 # ── CONFIG — edit these two lines ────────────────────────────────────────────
 PROJECT_ID="gen-lang-client-0533266855"        # gcloud projects list
 REGION="asia-south1"                     # Mumbai — closest to India
@@ -26,7 +28,7 @@ SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_SA_NAME="stock-intelligence-scheduler"
 SCHEDULER_SA_EMAIL="$SCHEDULER_SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 
-# Secrets to load from local .env → Secret Manager
+# Sensitive values → Secret Manager (never change without a new secret version)
 SECRETS=(
   ANTHROPIC_API_KEY
   GROWW_TOTP_TOKEN
@@ -38,6 +40,14 @@ SECRETS=(
   SCREENER_SCREEN_SLUG
   TELEGRAM_BOT_TOKEN
   TELEGRAM_CHAT_ID
+)
+
+# Non-sensitive config → plain env vars on the Cloud Run job
+# Change these anytime with:
+#   gcloud run jobs update stock-intelligence --region=asia-south1 \
+#     --update-env-vars KEY=VALUE
+CONFIG_VARS=(
+  STOCK_UNIVERSE=nifty200
 )
 
 log() { echo -e "\n\033[1;32m▶ $*\033[0m"; }
@@ -121,11 +131,15 @@ gcloud builds submit --config cloudbuild.yaml .
 # ── 6. Create Cloud Run Job ───────────────────────────────────────────────────
 log "Creating Cloud Run Job"
 
-# Build --set-secrets flag: ENV_VAR=secret-name:latest for each secret
+# Build --set-secrets flag
 SECRET_FLAGS=""
 for SECRET_NAME in "${SECRETS[@]}"; do
   SECRET_FLAGS="$SECRET_FLAGS --set-secrets=${SECRET_NAME}=${SECRET_NAME}:latest"
 done
+
+# Build --set-env-vars flag (comma-separated KEY=VALUE pairs)
+ENV_VAR_LIST=$(IFS=,; echo "${CONFIG_VARS[*]}")
+ENV_FLAGS="--set-env-vars=${ENV_VAR_LIST}"
 
 gcloud run jobs create "$JOB_NAME" \
   --image="$IMAGE" \
@@ -136,6 +150,7 @@ gcloud run jobs create "$JOB_NAME" \
   --task-timeout="3600s" \
   --max-retries=1 \
   $SECRET_FLAGS \
+  $ENV_FLAGS \
   --quiet 2>/dev/null || \
 gcloud run jobs update "$JOB_NAME" \
   --image="$IMAGE" \
@@ -146,6 +161,7 @@ gcloud run jobs update "$JOB_NAME" \
   --task-timeout="3600s" \
   --max-retries=1 \
   $SECRET_FLAGS \
+  $ENV_FLAGS \
   --quiet
 
 # ── 7. Grant Scheduler permission to trigger the job ─────────────────────────
@@ -188,3 +204,6 @@ echo "  View logs:     gcloud run jobs executions list --job=$JOB_NAME --region=
 echo ""
 echo "  To update after code changes:"
 echo "    gcloud builds submit --config cloudbuild.yaml . && gcloud run jobs update $JOB_NAME --image=$IMAGE --region=$REGION"
+echo ""
+ELAPSED=$(( $(date +%s) - SCRIPT_START ))
+echo "  Completed in ${ELAPSED}s ($(( ELAPSED / 60 ))m $(( ELAPSED % 60 ))s)"

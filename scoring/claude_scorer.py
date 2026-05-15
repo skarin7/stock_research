@@ -111,29 +111,60 @@ def _parse_result(result) -> Optional[dict]:
     return None
 
 
+_SYNC_THRESHOLD = 20  # use synchronous API below this count; Batch API above
+
+
+def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: str) -> list[dict]:
+    """Score stocks one-by-one using synchronous Messages API (fast, for small sets)."""
+    client = _get_client()
+    all_scores = []
+    for stock in stocks:
+        sym = stock["symbol"]
+        headlines = news_map.get(sym, {}).get("headlines", [])
+        user_content = build_user_prompt(stock, headlines, macro_context)
+        try:
+            resp = client.messages.create(
+                model=config.SCORING_MODEL,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            text = resp.content[0].text.strip() if resp.content else ""
+            start, end = text.find("{"), text.rfind("}") + 1
+            if start != -1 and end > start:
+                scorecard = json.loads(text[start:end])
+                scorecard["ticker"] = sym
+                all_scores.append(scorecard)
+        except Exception as e:
+            logger.error("Sync scoring failed for %s: %s", sym, e)
+    return all_scores
+
+
 def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "") -> list[dict]:
     """
-    Score all stocks using Claude Haiku Batch API.
-    Submits in batches of SCORING_BATCH_SIZE, polls each batch, returns parsed scorecards.
-    Stocks that fail parsing are omitted from results.
+    Score stocks using Claude Haiku.
+    Uses synchronous API for small sets (< _SYNC_THRESHOLD) for speed,
+    and Batch API for large sets to save cost (50% cheaper).
     """
+    if len(stocks) < _SYNC_THRESHOLD:
+        logger.info("Scoring %d stocks via synchronous API (faster for small sets)", len(stocks))
+        all_scores = _score_sync(stocks, news_map, macro_context)
+        logger.info("Scoring complete: %d/%d stocks successfully scored", len(all_scores), len(stocks))
+        return all_scores
+
     batch_size = config.SCORING_BATCH_SIZE
     all_scores: list[dict] = []
     batches = [stocks[i:i + batch_size] for i in range(0, len(stocks), batch_size)]
-
-    logger.info("Scoring %d stocks in %d batches (batch size=%d)", len(stocks), len(batches), batch_size)
+    logger.info("Scoring %d stocks via Batch API in %d batches", len(stocks), len(batches))
 
     batch_ids = []
     for i, chunk in enumerate(batches):
         logger.info("Submitting batch %d/%d (%d stocks)", i + 1, len(batches), len(chunk))
         req_list = _build_batch_requests(chunk, news_map, macro_context)
-        bid = _submit_batch(req_list)
-        batch_ids.append(bid)
+        batch_ids.append(_submit_batch(req_list))
 
-    # Poll all batches (sequentially to avoid hammering the API)
     for bid in batch_ids:
-        results = _poll_batch(bid)
-        for result in results:
+        for result in _poll_batch(bid):
             scorecard = _parse_result(result)
             if scorecard:
                 all_scores.append(scorecard)

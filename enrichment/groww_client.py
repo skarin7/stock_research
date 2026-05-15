@@ -145,7 +145,8 @@ def get_quote(symbol: str) -> dict:
 def enrich_stocks(stocks: list[dict]) -> list[dict]:
     """
     Enrich a list of stock dicts with OHLC candles (yfinance) and live quote (Groww).
-    Each dict gains: ohlc_5d, ohlc_10d, ltp, 52w_high, 52w_low
+    Each dict gains: ohlc_5d, ohlc_10d, ltp, 52w_high, 52w_low.
+    Sets no_data=True when both yfinance and Groww return nothing (likely delisted/suspended).
     """
     _load_instruments()
     enriched = []
@@ -163,10 +164,17 @@ def enrich_stocks(stocks: list[dict]) -> list[dict]:
             stock["52w_high"] = quote.get("52w_high") or stock.get("52w_high")
             stock["52w_low"] = quote.get("52w_low") or stock.get("52w_low")
             stock["groww_volume"] = quote.get("volume")
+
+            if not candles and not quote.get("ltp"):
+                logger.warning("%s — no price data from yfinance or Groww; possibly delisted/suspended", sym)
+                stock["no_data"] = True
+            else:
+                stock["no_data"] = False
         except Exception as e:
             logger.error("Enrichment failed for %s: %s — skipping", sym, e)
             stock.setdefault("ohlc_5d", [])
             stock.setdefault("ohlc_10d", [])
+            stock["no_data"] = True
 
         enriched.append(stock)
     return enriched
