@@ -28,8 +28,12 @@ SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_SA_NAME="stock-intelligence-scheduler"
 SCHEDULER_SA_EMAIL="$SCHEDULER_SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 
-# Sensitive values → Secret Manager (never change without a new secret version)
-SECRETS=(
+# All API keys + config are injected as plain env vars on the Cloud Run job.
+# No Secret Manager — saves ~₹18/month. Values are only readable by principals
+# with run.developer/run.viewer on this job (i.e., you).
+#
+# Sensitive vars are sourced from .env; non-sensitive vars are listed below.
+SENSITIVE_VARS=(
   ANTHROPIC_API_KEY
   GROWW_TOTP_TOKEN
   GROWW_TOTP_SECRET
@@ -42,10 +46,6 @@ SECRETS=(
   TELEGRAM_CHAT_ID
 )
 
-# Non-sensitive config → plain env vars on the Cloud Run job
-# Change these anytime with:
-#   gcloud run jobs update stock-intelligence --region=asia-south1 \
-#     --update-env-vars KEY=VALUE
 CONFIG_VARS=(
   STOCK_UNIVERSE=nifty200
 )
@@ -66,13 +66,12 @@ gcloud config set project "$PROJECT_ID"
 log "Enabling required GCP APIs"
 gcloud services enable \
   run.googleapis.com \
-  secretmanager.googleapis.com \
   cloudscheduler.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
   --quiet
 
-# ── 2. Artifact Registry repo ─────────────────────────────────────────────────
+# ── 2. Artifact Registry repo + cleanup policy ────────────────────────────────
 log "Creating Artifact Registry repository"
 gcloud artifacts repositories create "$REPO_NAME" \
   --repository-format=docker \
@@ -80,6 +79,13 @@ gcloud artifacts repositories create "$REPO_NAME" \
   --quiet 2>/dev/null || echo "  (already exists)"
 
 gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+log "Applying cleanup policy (delete untagged + tagged-older-than-7d, keep latest)"
+gcloud artifacts repositories set-cleanup-policies "$REPO_NAME" \
+  --location="$REGION" \
+  --policy="deploy/artifact-cleanup-policy.json" \
+  --no-dry-run \
+  --quiet
 
 # ── 3. Service accounts ───────────────────────────────────────────────────────
 log "Creating service account for Cloud Run job"
@@ -92,10 +98,8 @@ gcloud iam service-accounts create "$SCHEDULER_SA_NAME" \
   --display-name="Stock Intelligence Scheduler" \
   --quiet 2>/dev/null || echo "  (already exists)"
 
-# ── 4. Push secrets from .env → Secret Manager ───────────────────────────────
-log "Loading secrets from .env into Secret Manager"
-# Source .env using sed to strip comments/blanks, then export
-# Using sed+cut avoids IFS='=' issues with long values containing multiple '='
+# ── 4. Load .env into shell + build env-vars YAML for Cloud Run ──────────────
+log "Loading .env into shell"
 while IFS= read -r line; do
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
   [[ -z "${line//[[:space:]]/}" ]] && continue
@@ -105,41 +109,40 @@ while IFS= read -r line; do
   export "$key"="$value"
 done < .env
 
-for SECRET_NAME in "${SECRETS[@]}"; do
-  value="${!SECRET_NAME:-}"
-  [[ -z "$value" ]] && { echo "  ⚠ $SECRET_NAME not set in .env — skipping"; continue; }
+# Build env-vars file (handles values containing commas, '=', special chars
+# that --set-env-vars="K=V,K=V" can't quote).
+ENV_FILE=$(mktemp)
+trap 'rm -f "$ENV_FILE"' EXIT
 
-  # Create secret if it doesn't exist
-  gcloud secrets describe "$SECRET_NAME" --quiet 2>/dev/null || \
-    gcloud secrets create "$SECRET_NAME" --replication-policy="automatic" --quiet
+emit_var() {
+  # YAML-safe scalar: wrap in single quotes, escape internal single quotes by doubling.
+  local k="$1" v="$2"
+  local escaped="${v//\'/\'\'}"
+  echo "$k: '$escaped'" >> "$ENV_FILE"
+}
 
-  # Add new version
-  echo -n "$value" | gcloud secrets versions add "$SECRET_NAME" --data-file=- --quiet
-  echo "  ✓ $SECRET_NAME"
+for KEY in "${SENSITIVE_VARS[@]}"; do
+  value="${!KEY:-}"
+  if [[ -z "$value" ]]; then
+    echo "  ⚠ $KEY not set in .env — omitting"
+    continue
+  fi
+  emit_var "$KEY" "$value"
+  echo "  ✓ $KEY"
 done
 
-# Grant Cloud Run SA access to all secrets
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/secretmanager.secretAccessor" \
-  --quiet
+for KV in "${CONFIG_VARS[@]}"; do
+  k="${KV%%=*}"
+  v="${KV#*=}"
+  emit_var "$k" "$v"
+done
 
 # ── 5. Build and push Docker image via Cloud Build (no local Docker needed) ───
-log "Building and pushing image via Cloud Build (Kaniko cache enabled)"
+log "Building and pushing image via Cloud Build (cache disabled, ~3-5 min)"
 gcloud builds submit --config cloudbuild.yaml .
 
 # ── 6. Create Cloud Run Job ───────────────────────────────────────────────────
-log "Creating Cloud Run Job"
-
-# Build --set-secrets flag
-SECRET_FLAGS=""
-for SECRET_NAME in "${SECRETS[@]}"; do
-  SECRET_FLAGS="$SECRET_FLAGS --set-secrets=${SECRET_NAME}=${SECRET_NAME}:latest"
-done
-
-# Build --set-env-vars flag (comma-separated KEY=VALUE pairs)
-ENV_VAR_LIST=$(IFS=,; echo "${CONFIG_VARS[*]}")
-ENV_FLAGS="--set-env-vars=${ENV_VAR_LIST}"
+log "Creating Cloud Run Job (env vars from $ENV_FILE)"
 
 gcloud run jobs create "$JOB_NAME" \
   --image="$IMAGE" \
@@ -149,8 +152,7 @@ gcloud run jobs create "$JOB_NAME" \
   --cpu="1" \
   --task-timeout="3600s" \
   --max-retries=1 \
-  $SECRET_FLAGS \
-  $ENV_FLAGS \
+  --env-vars-file="$ENV_FILE" \
   --quiet 2>/dev/null || \
 gcloud run jobs update "$JOB_NAME" \
   --image="$IMAGE" \
@@ -160,8 +162,7 @@ gcloud run jobs update "$JOB_NAME" \
   --cpu="1" \
   --task-timeout="3600s" \
   --max-retries=1 \
-  $SECRET_FLAGS \
-  $ENV_FLAGS \
+  --env-vars-file="$ENV_FILE" \
   --quiet
 
 # ── 7. Grant Scheduler permission to trigger the job ─────────────────────────

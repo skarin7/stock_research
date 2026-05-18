@@ -2,9 +2,9 @@ steps:
   - name: gcr.io/kaniko-project/executor:latest
     args:
       - --destination=$_IMAGE
-      - --cache=true
-      - --cache-ttl=168h   # reuse layers for 7 days
+      - --cache=false        # no cache image in Artifact Registry — keeps storage near zero
       - --compressed-caching=false
+      - --single-snapshot    # one layer in the pushed image, smaller manifest
 
 substitutions:
   _IMAGE: asia-south1-docker.pkg.dev/gen-lang-client-0533266855/stock-intelligence/stock-intelligence:latest
