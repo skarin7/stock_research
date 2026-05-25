@@ -61,6 +61,7 @@ def fetch_index_stocks(index: str = "nifty200") -> list[dict]:
         symbol = str(row.get("Symbol", "")).strip().upper()
         company = str(row.get("Company Name", "")).strip()
         series = str(row.get("Series", "")).strip().upper()
+        industry = str(row.get("Industry", "")).strip()
 
         # Skip non-equity rows (index metadata, ETFs, etc.) — valid stocks have Series=EQ
         if not symbol or series not in ("EQ", ""):
@@ -71,6 +72,7 @@ def fetch_index_stocks(index: str = "nifty200") -> list[dict]:
         stocks.append({
             "symbol":        symbol,
             "company":       company,
+            "sector":        industry or None,
             "pe_ratio":      None,
             "market_cap_cr": None,
             "debt_equity":   None,

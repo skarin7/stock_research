@@ -27,14 +27,17 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def _build_batch_requests(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "") -> list[dict]:
+def _build_batch_requests(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "",
+                          sector_map: Optional[dict] = None) -> list[dict]:
     """Build Batch API request objects for a list of stocks."""
+    sector_map = sector_map or {}
     requests_list = []
     for stock in stocks:
         sym = stock["symbol"]
         news = news_map.get(sym, {})
         headlines = news.get("headlines", [])
-        user_content = build_user_prompt(stock, headlines, macro_context)
+        sector_macro = sector_map.get(stock.get("sector"))
+        user_content = build_user_prompt(stock, headlines, macro_context, sector_macro)
         safe_id = base64.urlsafe_b64encode(sym.encode()).decode().rstrip("=")[:64]
         requests_list.append({
             "custom_id": safe_id,
@@ -114,14 +117,17 @@ def _parse_result(result) -> Optional[dict]:
 _SYNC_THRESHOLD = 20  # use synchronous API below this count; Batch API above
 
 
-def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: str) -> list[dict]:
+def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: str,
+                sector_map: Optional[dict] = None) -> list[dict]:
     """Score stocks one-by-one using synchronous Messages API (fast, for small sets)."""
+    sector_map = sector_map or {}
     client = _get_client()
     all_scores = []
     for stock in stocks:
         sym = stock["symbol"]
         headlines = news_map.get(sym, {}).get("headlines", [])
-        user_content = build_user_prompt(stock, headlines, macro_context)
+        sector_macro = sector_map.get(stock.get("sector"))
+        user_content = build_user_prompt(stock, headlines, macro_context, sector_macro)
         try:
             resp = client.messages.create(
                 model=config.SCORING_MODEL,
@@ -140,7 +146,8 @@ def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: st
     return all_scores
 
 
-def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "") -> list[dict]:
+def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "",
+                 sector_map: Optional[dict] = None) -> list[dict]:
     """
     Score stocks using Claude Haiku.
     Uses synchronous API for small sets (< _SYNC_THRESHOLD) for speed,
@@ -148,7 +155,7 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
     """
     if len(stocks) < _SYNC_THRESHOLD:
         logger.info("Scoring %d stocks via synchronous API (faster for small sets)", len(stocks))
-        all_scores = _score_sync(stocks, news_map, macro_context)
+        all_scores = _score_sync(stocks, news_map, macro_context, sector_map)
         logger.info("Scoring complete: %d/%d stocks successfully scored", len(all_scores), len(stocks))
         return all_scores
 
@@ -160,7 +167,7 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
     batch_ids = []
     for i, chunk in enumerate(batches):
         logger.info("Submitting batch %d/%d (%d stocks)", i + 1, len(batches), len(chunk))
-        req_list = _build_batch_requests(chunk, news_map, macro_context)
+        req_list = _build_batch_requests(chunk, news_map, macro_context, sector_map)
         batch_ids.append(_submit_batch(req_list))
 
     for bid in batch_ids:

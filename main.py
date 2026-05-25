@@ -133,17 +133,22 @@ def main():
     stocks = [s for s in stocks if not s.get("no_data")]
     logger.info("Stage 3 complete: %d stocks with valid price data", len(stocks))
 
+    # Fundamentals (PE / sector / market cap / volume ratio / earnings dates) via yfinance — free
+    from enrichment.fundamentals import enrich_fundamentals
+    stocks = enrich_fundamentals(stocks, ref_date=report_date)
+
     # ── Stage 4: News fetch + macro context ──────────────────────────────────
     logger.info("STAGE 4: News fetch (RSS) + macro context (Gemini)")
     from enrichment.news_fetcher import fetch_news_batch, fetch_macro_context
     news_map = fetch_news_batch(stocks)
-    macro_context = fetch_macro_context()
+    sectors = sorted({s.get("sector") for s in stocks if s.get("sector")})
+    macro_context, sector_macro_map = fetch_macro_context(sectors)
     logger.info("Stage 4 complete: news fetched for %d stocks", len(news_map))
 
     # ── Stage 5: Claude Haiku Batch API scoring ───────────────────────────────
     logger.info("STAGE 5: Claude Haiku scoring (Batch API)")
     from scoring.claude_scorer import score_stocks
-    all_scores = score_stocks(stocks, news_map, macro_context)
+    all_scores = score_stocks(stocks, news_map, macro_context, sector_macro_map)
     logger.info("Stage 5 complete: %d stocks scored", len(all_scores))
 
     if not all_scores:
