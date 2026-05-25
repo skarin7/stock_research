@@ -63,7 +63,7 @@ python -m pytest tests/ -v
 python -m pytest tests/test_scorer.py::TestRanker::test_composite_score_weighted -v
 ```
 
-Tests mock `config` entirely — no `.env` needed. 12 tests cover: prompts, ranker, backtest engine, and Screener filters.
+Tests mock `config` entirely — no `.env` needed. 20 tests cover: prompts, ranker, backtest engine, Screener filters, yfinance fundamentals + earnings dates, news merge/dedup, and sector-aware macro parsing.
 
 ## Pipeline architecture
 
@@ -71,8 +71,8 @@ Tests mock `config` entirely — no `.env` needed. 12 tests cover: prompts, rank
 
 1. **Stock universe** — either Screener.in custom screen (`STOCK_UNIVERSE=screener`) or NSE index (`nifty50`/`nifty100`/`nifty200`/`nifty500`). BSE-only (numeric) symbols are dropped. A persistent `output/skip_list.json` excludes stocks with no price data.
 2. **NSE Bhavcopy + Bulk Deals** — delivery %, 52-week range, institutional bulk deals from NSE CSV dumps.
-3. **Groww enrichment** — live quotes via `growwapi` SDK; OHLC candles via `yfinance` (free, `.NS` suffix). TOTP auth preferred over legacy JWT.
-4. **News + macro** — RSS headlines per stock; Gemini API for macro context (falls back to empty string if no key).
+3. **Groww enrichment + fundamentals** — live quotes via `growwapi` SDK; OHLC candles via `yfinance`. Then `enrichment/fundamentals.py` adds PE / forward PE / market cap / sector / volume ratio + earnings dates from yfinance `.info` (free), and computes `sector_pe` as the per-sector median PE. TOTP auth preferred over legacy JWT.
+4. **News + macro** — per stock, two Google News RSS queries (generic + results-focused), recency-filtered and deduped, results headlines first (cap 5). One Gemini call returns the macro summary **and** a per-sector impact map (`fetch_macro_context(sectors)`), so each stock is scored against its own sector's macro tailwinds/headwinds. Falls back gracefully if no key.
 5. **Claude Haiku scoring** — each stock → JSON scorecard with 8 weighted signals (1–10). Uses synchronous API for <20 stocks, Batch API (50% cheaper) for ≥20.
 6. **Rank + report** — `ranker.py` computes weighted composite score; `reports/daily_report.py` writes `output/YYYY-MM-DD/{scores.json, report.html}`. Claude Sonnet writes the narrative section.
 7. **Backtest** — reads previous day's `scores.json`, fetches T+1/T+3/T+5 closes via yfinance, computes win rate + alpha vs Nifty 50, appends to `output/backtest_log.json`.
