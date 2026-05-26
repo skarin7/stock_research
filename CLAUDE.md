@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository layout
 
-The repo root contains one active project: `stock-intelligence/` — an NSE/BSE daily stock-scoring pipeline. All code lives there; the root also holds a planning doc (`StockIntelligenceSystem_Plan.docx`).
+The project lives at the **repo root** — an NSE/BSE daily stock-scoring pipeline (there is no `stock-intelligence/` subdirectory; do not `cd` into one).
 
 ```
-stock-intelligence/
-  main.py               # pipeline orchestrator (7 stages)
+.
+  main.py               # legacy pipeline orchestrator (7 stages) — still runnable
+  run_agents.py         # multi-agent (LangGraph) entrypoint — parallel to main.py
   config.py             # all settings loaded from .env
   scrapers/             # Stage 1–2: stock universe + NSE bhavcopy/bulk deals
   enrichment/           # Stage 3–4: Groww API (quotes/OHLC) + news + Gemini macro
@@ -16,16 +17,18 @@ stock-intelligence/
   backtest/             # Stage 7: T+1/T+3/T+5 backtest vs Nifty 50
   reports/              # HTML report (Jinja2) + Claude Sonnet narrative
   notifications/        # Telegram delivery
+  agents/               # LangGraph multi-agent layer (wraps the modules above)
+  persistence/          # Postgres ORM (runs, proposals, positions, orders, audit)
+  observability/        # Langfuse callback + Prometheus metrics
+  deploy/               # docker-compose.obs.yml (postgres + langfuse + prometheus + grafana)
   tests/                # pytest unit tests (no API keys needed)
   output/               # YYYY-MM-DD/scores.json + report.html, backtest_log.json
   scheduler/cron.sh     # cron wrapper for production scheduling
-  deploy/setup_gcp.sh   # GCP Cloud Run setup
 ```
 
 ## Setup
 
 ```bash
-cd stock-intelligence
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in API keys
@@ -55,15 +58,14 @@ python main.py --date 2026-05-14
 ## Tests
 
 ```bash
-# Run all tests from stock-intelligence/
-cd stock-intelligence
+# Run all tests from the repo root
 python -m pytest tests/ -v
 
 # Single test
 python -m pytest tests/test_scorer.py::TestRanker::test_composite_score_weighted -v
 ```
 
-Tests mock `config` entirely — no `.env` needed. 20 tests cover: prompts, ranker, backtest engine, Screener filters, yfinance fundamentals + earnings dates, news merge/dedup, and sector-aware macro parsing.
+Tests mock `config` entirely — no `.env` needed. Coverage: prompts, ranker, backtest engine, Screener filters, yfinance fundamentals + earnings dates, news merge/dedup, sector-aware macro parsing, agent contract round-trips (`test_contracts.py`), and graph routing/guards (`test_graph.py`, using `MemorySaver`).
 
 ## Pipeline architecture
 
@@ -85,11 +87,43 @@ Tests mock `config` entirely — no `.env` needed. 20 tests cover: prompts, rank
 - **`MAX_STOCKS_TO_SCORE`** (default 100) caps the Groww/Claude expense: stocks are sorted by market cap and the tail is dropped before enrichment.
 - Claude models are `claude-haiku-4-5` (scoring) and `claude-sonnet-4-6` (narrative); both are in `config.py`.
 
+## Multi-agent architecture & conventions
+
+The `agents/` package re-platforms the 7-stage pipeline onto **LangGraph** as a multi-agent system, **without rewriting** the existing modules — agents wrap them. `main.py` (legacy) stays runnable; `run_agents.py` is the parallel entrypoint.
+
+```bash
+python run_agents.py --mode research [--dry-run] [--date YYYY-MM-DD]
+python run_agents.py --kill        # engage kill-switch   (creates output/kill_switch.flag)
+python run_agents.py --unkill      # clear it
+```
+
+**Graph** (`agents/graph.py`): `research → analyst → [debate → risk → portfolio → trading] → finalize → END`. The trading chain is gated OFF by default, so research mode is `research → analyst → finalize`. Any terminal status short-circuits to `finalize`.
+
+- **research** (`agents/nodes/research.py`) — Stages 1–4 (deterministic), skip-list moved in.
+- **analyst** (`agents/nodes/analyst.py`) — Stage 5 scoring + Stage 6 ranking (Haiku).
+- **finalize** (`agents/nodes/finalize.py`) — backtest + `write_report` (writes `scores.json`/`report.html`) + Telegram.
+- **debate / risk / portfolio / trading** (`agents/nodes/stubs.py`) — stubs, gated off; real impls land in later iterations.
+
+**State & contracts**: `agents/state.py` holds `AgentState` (LangGraph state, list fields use additive reducers) and the `RunStatus` terminal enum (`RUNNING | COMPLETED | AWAITING_APPROVAL | HALTED | FAILED | MAX_ROUNDS | BUDGET_EXCEEDED`). `agents/contracts.py` has Pydantic models with `from_legacy`/`to_legacy_dict` — the **seam** to the dict-based modules (e.g. `EnrichedStock` maps `52w_high`↔`week52_high` and preserves unknown keys in `extra`; `Scorecard` round-trips the exact `signals[k]["score"]` shape the ranker/telegram expect).
+
+**Conventions** (borrowed from Claude Code / orchestrator-worker agent design):
+- **Single responsibility per node**; nodes return a partial state-update dict and never reach into each other — they pass typed contracts.
+- **`agent_node` decorator** (`agents/nodes/base.py`) is the supervisor contract on every node: honours the **kill-switch** (→ HALTED) and **per-run cost/token budget** (→ BUDGET_EXCEEDED), **skips** cleanly when the node's `ENABLE_*` flag is off, times + audits the node, and turns exceptions into a terminal `FAILED` (never crashes the run).
+- **Explicit terminal states + bounded loops** — no open-ended iteration. The graph is invoked with `recursion_limit = MAX_GRAPH_STEPS`; the debate loop is bounded by `MAX_DEBATE_ROUNDS`.
+- **Default-deny for irreversible actions** — live orders require `ENABLE_LIVE_TRADING` AND `AGENT_MODE=="live"` AND no kill-switch AND explicit human approval (LangGraph `interrupt()`), checked again inside the broker layer.
+- **Dependency injection of `config`** — modules read `config` dynamically (mockable); tests use a stand-in config + `MemorySaver`.
+
+**Persistence** (`persistence/`): Postgres owns agent + trading state — LangGraph checkpoints/store plus app tables (`runs`, `trade_proposals`, `positions`, `orders`, `agent_audit`, `memory`). Falls back to `MemorySaver` when `DATABASE_URL` is unset (so research mode + tests run without a DB). Research output stays as files.
+
+**Observability** (`observability/`): Langfuse callback (LLM/agent traces + token/cost) and Prometheus metrics (run/node latency, cost, proposals); both no-op when their deps/keys are absent. `deploy/docker-compose.obs.yml` brings up postgres + langfuse + prometheus + grafana.
+
+**Cost/iteration guardrails** live in `config.py`: `MAX_GRAPH_STEPS`, `MAX_DEBATE_ROUNDS`, `MAX_NODE_RETRIES`, `MAX_RUN_COST_USD`, `MAX_RUN_TOKENS`. Token-efficiency levers: prompt caching on the static scoring prefix, the Batch API for ≥20 stocks, model tiering (Haiku scoring / Sonnet debate), and pre-filtering before the LLM.
+
 ## Deployment (GCP Cloud Run)
 
 ```bash
 # Build image (Cloud Build / Kaniko)
-gcloud builds submit --config stock-intelligence/cloudbuild.yaml
+gcloud builds submit --config cloudbuild.yaml
 
 # Run job (secrets injected as env vars — no .env in container)
 ```

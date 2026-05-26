@@ -64,3 +64,61 @@ GROWW_BASE_URL = "https://api.groww.in/v1/market"
 
 # --- Output directory ---
 OUTPUT_DIR = "output"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-agent system (LangGraph) — all trading defaults OFF
+# ──────────────────────────────────────────────────────────────────────────────
+def _flag(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Run mode: "research" (report only) | "paper" (simulated fills) | "live" (real orders)
+AGENT_MODE = os.environ.get("AGENT_MODE", "research").strip().lower()
+
+# Per-agent feature flags (research + analyst on; everything else off until built out)
+ENABLE_RESEARCH_AGENT = _flag("ENABLE_RESEARCH_AGENT", "true")
+ENABLE_ANALYST_AGENT = _flag("ENABLE_ANALYST_AGENT", "true")
+ENABLE_DEBATE_AGENT = _flag("ENABLE_DEBATE_AGENT", "false")
+ENABLE_RISK_AGENT = _flag("ENABLE_RISK_AGENT", "false")
+ENABLE_PORTFOLIO_AGENT = _flag("ENABLE_PORTFOLIO_AGENT", "false")
+ENABLE_TRADING_AGENT = _flag("ENABLE_TRADING_AGENT", "false")
+ENABLE_MONITORING_AGENT = _flag("ENABLE_MONITORING_AGENT", "false")
+ENABLE_MEMORY_AGENT = _flag("ENABLE_MEMORY_AGENT", "false")
+
+# Live-trading hard gate (must be true AND AGENT_MODE == "live" AND no kill-switch)
+ENABLE_LIVE_TRADING = _flag("ENABLE_LIVE_TRADING", "false")
+GROWW_TRADING_ENABLED = _flag("GROWW_TRADING_ENABLED", "false")
+KILL_SWITCH = _flag("KILL_SWITCH", "false")
+KILL_SWITCH_FILE = os.path.join(OUTPUT_DIR, "kill_switch.flag")
+
+# Human-approval gate
+APPROVAL_TIMEOUT_SEC = int(os.environ.get("APPROVAL_TIMEOUT_SEC", "900"))   # 15 min
+APPROVAL_CHANNEL = os.environ.get("APPROVAL_CHANNEL", "telegram")           # telegram | cli
+
+# Cost / iteration guardrails (prevent runaway loops + bound spend)
+MAX_DEBATE_ROUNDS = int(os.environ.get("MAX_DEBATE_ROUNDS", "3"))
+MAX_GRAPH_STEPS = int(os.environ.get("MAX_GRAPH_STEPS", "50"))              # LangGraph recursion_limit
+MAX_NODE_RETRIES = int(os.environ.get("MAX_NODE_RETRIES", "2"))
+MAX_RUN_COST_USD = float(os.environ.get("MAX_RUN_COST_USD", "5.0"))         # halt run if exceeded
+MAX_RUN_TOKENS = int(os.environ.get("MAX_RUN_TOKENS", "5000000"))
+
+# Risk limits
+MAX_OPEN_POSITIONS = int(os.environ.get("MAX_OPEN_POSITIONS", "5"))
+MAX_POSITION_PCT = float(os.environ.get("MAX_POSITION_PCT", "0.10"))        # of capital per name
+MAX_SECTOR_PCT = float(os.environ.get("MAX_SECTOR_PCT", "0.30"))
+STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0.05"))
+BLOCK_NEAR_EARNINGS = _flag("BLOCK_NEAR_EARNINGS", "true")
+TRADING_CAPITAL_INR = float(os.environ.get("TRADING_CAPITAL_INR", "100000"))
+MIN_CONVICTION_TO_TRADE = float(os.environ.get("MIN_CONVICTION_TO_TRADE", "0.6"))
+
+# Persistence (Postgres for agent + trading state; research output stays as files)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")                          # empty → MemorySaver fallback
+POSITIONS_FILE = os.path.join(OUTPUT_DIR, "positions.json")
+MEMORY_FILE = os.path.join(OUTPUT_DIR, "memory.jsonl")
+
+# Observability (self-hosted: Langfuse traces + Prometheus/Grafana metrics)
+LANGFUSE_PUBLIC_KEY = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.environ.get("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
+METRICS_PORT = int(os.environ.get("METRICS_PORT", "9100"))

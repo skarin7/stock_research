@@ -1,0 +1,55 @@
+# Self-hosted observability + state for the multi-agent system.
+#   docker compose -f deploy/docker-compose.obs.yml up -d
+#
+# Services:
+#   postgres   – LangGraph checkpoints/store + app tables (DATABASE_URL)
+#   langfuse   – LLM/agent traces + token/cost accounting
+#   prometheus – scrapes run_agents /metrics (host.docker.internal:9100)
+#   grafana    – dashboards over prometheus
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: stock
+      POSTGRES_PASSWORD: stock
+      POSTGRES_DB: stock_agents
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://stock:stock@postgres:5432/stock_agents
+      NEXTAUTH_SECRET: change-me
+      SALT: change-me
+      NEXTAUTH_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana:/var/lib/grafana
+
+volumes:
+  pgdata:
+  grafana:
