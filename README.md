@@ -122,9 +122,9 @@ The graph is invoked with `recursion_limit = MAX_GRAPH_STEPS`; the debate loop i
 | **Research** (`nodes/research.py`) | Stages 1–4: universe + bhavcopy/bulk deals + Groww/fundamentals + news/macro; skip-list | deterministic | done |
 | **Analyst** (`nodes/analyst.py`) | Stage 5 scoring + Stage 6 ranking; emits `Scorecard`/`RankingResult` | LLM | done |
 | **Debate** (`nodes/debate.py`) | bounded bull↔bear→synthesize subgraph per top-`DEBATE_TOP_N` → `ConvictionView` | LLM | **done** |
-| **Risk Manager** (`nodes/stubs.py`) | position/sector caps, stop-loss, earnings block → `RiskCheck` gate | deterministic | stub |
-| **Portfolio Manager** (`nodes/stubs.py`) | the book, sizing, approve/reject proposals | deterministic | stub |
-| **Trading** (`nodes/stubs.py`) | build `TradeProposal` → `interrupt()` human approval → broker | gated | stub |
+| **Risk Manager** (`nodes/risk.py`) | long-only, min-conviction, earnings block, no-duplicate → `RiskCheck` gate | deterministic | done |
+| **Portfolio Manager** (`nodes/portfolio.py`) | sizes by capital×pct×conviction; `MAX_OPEN_POSITIONS` + `MAX_SECTOR_PCT` caps → APPROVED/REJECTED | deterministic | done |
+| **Trading** (`nodes/trading.py`) | paper: simulate fills + persist book; live: `interrupt()` approval → broker | gated | paper done; live deferred |
 | **Monitoring** | scheduled (market-hours) position/market watch → alerts/stops | deterministic | planned |
 | **Memory + Backtest** | wraps backtest engine; long-term store of calls/rationales/regime | deterministic | planned |
 
@@ -323,8 +323,8 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
   notifications/        # Telegram delivery
   agents/               # LangGraph multi-agent layer (wraps the modules above)
     graph.py state.py contracts.py supervisor.py llm.py
-    nodes/              # research, analyst, debate, stubs (risk/portfolio/trading)
-  persistence/          # Postgres ORM (runs, proposals, positions, orders, audit, memory)
+    nodes/              # research, analyst, debate, risk, portfolio, trading
+  persistence/          # Postgres ORM (runs, proposals, positions, ...) + store.py (paper book)
   observability/        # Langfuse callback + Prometheus metrics
   deploy/               # deploy.sh + terraform/ + docker-compose.obs.yml + setup_gcp.sh
   tests/                # pytest (no API keys needed)
@@ -338,7 +338,7 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
 1. ✅ LangGraph scaffolding (research-mode skeleton)
 2. ✅ OpenRouter provider option
 3. ✅ Bull/Bear debate subgraph
-4. ⬜ Risk + Portfolio gates (paper mode)
+4. ✅ Risk + Portfolio gates + paper-mode fills
 5. ⬜ Broker + `interrupt()` approval + Telegram resume (paper → live)
 6. ⬜ Live trading enablement
 7. ⬜ Monitoring (scheduled) + Memory self-evaluation loop

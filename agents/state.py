@@ -61,9 +61,11 @@ class AgentState(TypedDict, total=False):
     scorecards: Annotated[list[Scorecard], operator.add]
     ranking: Optional[RankingResult]
 
-    # debate / trading (later iterations)
+    # debate / trading
     convictions: Annotated[list[ConvictionView], operator.add]
-    proposals: Annotated[list[TradeProposal], operator.add]
+    # proposals evolve through their lifecycle (risk → portfolio → trading), so the
+    # latest full list replaces — NOT an additive reducer.
+    proposals: list[TradeProposal]
     book: Optional[PortfolioState]
     alerts: Annotated[list[Alert], operator.add]
     debate_rounds: int

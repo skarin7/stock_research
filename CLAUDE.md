@@ -104,7 +104,10 @@ python run_agents.py --unkill      # clear it
 - **analyst** (`agents/nodes/analyst.py`) — Stage 5 scoring + Stage 6 ranking (Haiku).
 - **finalize** (`agents/nodes/finalize.py`) — backtest + `write_report` (writes `scores.json`/`report.html`) + Telegram.
 - **debate** (`agents/nodes/debate.py`) — a **bounded bull↔bear→synthesize subgraph** run per top-`DEBATE_TOP_N` candidate. `bull → bear` alternate up to `MAX_DEBATE_ROUNDS` (hard turn cap), then a judge step emits `{direction, conviction}` → one `ConvictionView` each. Provider-aware LLM via `agents/llm.py`; LLM turns isolated behind `_chat` (monkeypatched in tests). Gated by `ENABLE_DEBATE_AGENT` (off by default).
-- **risk / portfolio / trading** (`agents/nodes/stubs.py`) — stubs, gated off; real impls land in later iterations.
+- **risk** (`agents/nodes/risk.py`) — deterministic gate over the debate's convictions: long-only, `MIN_CONVICTION_TO_TRADE`, earnings-proximity block, no-duplicate-of-held → emits `TradeProposal`s as PROPOSED/BLOCKED with `RiskCheck`s.
+- **portfolio** (`agents/nodes/portfolio.py`) — sizes PROPOSED proposals by `capital × MAX_POSITION_PCT × conviction`, accepts highest-conviction first under `MAX_OPEN_POSITIONS` + `MAX_SECTOR_PCT` → APPROVED (qty + limit_price) / REJECTED.
+- **trading** (`agents/nodes/trading.py`) — **paper** mode simulates fills (appends positions + stop-loss, debits cash, persists the book via `persistence/store.py`); **live** mode is deferred to the broker iteration (no order is placed). Gated by `ENABLE_TRADING_AGENT`.
+- `proposals` in `AgentState` evolve through their lifecycle (risk → portfolio → trading), so it uses **replace** semantics (not an additive reducer).
 
 **State & contracts**: `agents/state.py` holds `AgentState` (LangGraph state, list fields use additive reducers) and the `RunStatus` terminal enum (`RUNNING | COMPLETED | AWAITING_APPROVAL | HALTED | FAILED | MAX_ROUNDS | BUDGET_EXCEEDED`). `agents/contracts.py` has Pydantic models with `from_legacy`/`to_legacy_dict` — the **seam** to the dict-based modules (e.g. `EnrichedStock` maps `52w_high`↔`week52_high` and preserves unknown keys in `extra`; `Scorecard` round-trips the exact `signals[k]["score"]` shape the ranker/telegram expect).
 
