@@ -109,6 +109,7 @@ APPROVAL_CHANNEL = os.environ.get("APPROVAL_CHANNEL", "telegram")           # te
 
 # Cost / iteration guardrails (prevent runaway loops + bound spend)
 MAX_DEBATE_ROUNDS = int(os.environ.get("MAX_DEBATE_ROUNDS", "3"))
+DEBATE_TOP_N = int(os.environ.get("DEBATE_TOP_N", "5"))   # debate only the top-N ranked (cost lever)
 MAX_GRAPH_STEPS = int(os.environ.get("MAX_GRAPH_STEPS", "50"))              # LangGraph recursion_limit
 MAX_NODE_RETRIES = int(os.environ.get("MAX_NODE_RETRIES", "2"))
 MAX_RUN_COST_USD = float(os.environ.get("MAX_RUN_COST_USD", "5.0"))         # halt run if exceeded

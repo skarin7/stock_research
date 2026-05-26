@@ -37,6 +37,9 @@ sys.modules["config"] = _cfg
 
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
+import agents.graph as _graph_mod  # noqa: E402
+import agents.nodes.base as _base_mod  # noqa: E402
+import agents.supervisor as _sup_mod  # noqa: E402
 from agents.graph import build_graph  # noqa: E402
 from agents.nodes.base import agent_node  # noqa: E402
 from agents.state import RunStatus  # noqa: E402
@@ -47,6 +50,15 @@ from agents.supervisor import (  # noqa: E402
     route_after_analyst,
     route_after_research,
 )
+
+
+@pytest.fixture(autouse=True)
+def _bind_config():
+    """Bind the agent-layer modules to THIS file's config (order-independent)."""
+    _graph_mod.config = _cfg
+    _sup_mod.config = _cfg
+    _base_mod.config = _cfg
+    yield
 
 
 # ── routing ───────────────────────────────────────────────────────────────────

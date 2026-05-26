@@ -14,9 +14,10 @@ import logging
 import config
 
 from agents.nodes.analyst import analyst_node
+from agents.nodes.debate import debate_node
 from agents.nodes.finalize import finalize_node
 from agents.nodes.research import research_node
-from agents.nodes.stubs import debate_node, portfolio_node, risk_node, trading_node
+from agents.nodes.stubs import portfolio_node, risk_node, trading_node
 from agents.state import AgentState
 from agents.supervisor import next_or_finalize, route_after_analyst, route_after_research
 

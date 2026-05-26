@@ -103,7 +103,8 @@ python run_agents.py --unkill      # clear it
 - **research** (`agents/nodes/research.py`) — Stages 1–4 (deterministic), skip-list moved in.
 - **analyst** (`agents/nodes/analyst.py`) — Stage 5 scoring + Stage 6 ranking (Haiku).
 - **finalize** (`agents/nodes/finalize.py`) — backtest + `write_report` (writes `scores.json`/`report.html`) + Telegram.
-- **debate / risk / portfolio / trading** (`agents/nodes/stubs.py`) — stubs, gated off; real impls land in later iterations.
+- **debate** (`agents/nodes/debate.py`) — a **bounded bull↔bear→synthesize subgraph** run per top-`DEBATE_TOP_N` candidate. `bull → bear` alternate up to `MAX_DEBATE_ROUNDS` (hard turn cap), then a judge step emits `{direction, conviction}` → one `ConvictionView` each. Provider-aware LLM via `agents/llm.py`; LLM turns isolated behind `_chat` (monkeypatched in tests). Gated by `ENABLE_DEBATE_AGENT` (off by default).
+- **risk / portfolio / trading** (`agents/nodes/stubs.py`) — stubs, gated off; real impls land in later iterations.
 
 **State & contracts**: `agents/state.py` holds `AgentState` (LangGraph state, list fields use additive reducers) and the `RunStatus` terminal enum (`RUNNING | COMPLETED | AWAITING_APPROVAL | HALTED | FAILED | MAX_ROUNDS | BUDGET_EXCEEDED`). `agents/contracts.py` has Pydantic models with `from_legacy`/`to_legacy_dict` — the **seam** to the dict-based modules (e.g. `EnrichedStock` maps `52w_high`↔`week52_high` and preserves unknown keys in `extra`; `Scorecard` round-trips the exact `signals[k]["score"]` shape the ranker/telegram expect).
 
