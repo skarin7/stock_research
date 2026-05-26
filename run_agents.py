@@ -28,7 +28,7 @@ logger = logging.getLogger("run_agents")
 
 def parse_args():
     p = argparse.ArgumentParser(description="Stock Intelligence — multi-agent runner")
-    p.add_argument("--mode", choices=["research", "paper", "live"], default=None,
+    p.add_argument("--mode", choices=["research", "paper", "live", "monitor"], default=None,
                    help="Override AGENT_MODE")
     p.add_argument("--date", help="Trading date (YYYY-MM-DD); defaults to today")
     p.add_argument("--dry-run", action="store_true", help="Limit to DRY_RUN_STOCK_COUNT stocks")
@@ -73,12 +73,19 @@ def main():
         os.environ["AGENT_MODE"] = args.mode
     import config
 
-    from agents.graph import build_graph
     from agents.state import RunStatus
     from observability.metrics import start_metrics_server
 
     report_date = date.fromisoformat(args.date) if args.date else date.today()
     run_id = f"{report_date.isoformat()}-{uuid.uuid4().hex[:8]}"
+
+    # Monitoring is a separate short, scheduled flow (market hours) — not the
+    # full research→…→trade pipeline.
+    if config.AGENT_MODE == "monitor":
+        _monitor(run_id, report_date, RunStatus)
+        return
+
+    from agents.graph import build_graph
     logger.info("=== Agent run %s | mode=%s dry_run=%s ===", run_id, config.AGENT_MODE, args.dry_run)
 
     start_metrics_server()
@@ -120,6 +127,24 @@ def main():
         print(f"\nReport ready: {final['report_path']}")
     if status not in (RunStatus.COMPLETED, RunStatus.AWAITING_APPROVAL):
         sys.exit(1)
+
+
+def _monitor(run_id: str, report_date, RunStatus) -> None:
+    import config
+
+    from agents.graph import build_monitor_graph
+    from observability.metrics import start_metrics_server
+
+    start_metrics_server()
+    logger.info("=== Monitor run %s ===", run_id)
+    graph = build_monitor_graph()
+    initial = {"run_id": run_id, "report_date": report_date.isoformat(), "mode": "monitor",
+               "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
+    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": config.MAX_GRAPH_STEPS}
+    final = graph.invoke(initial, cfg)
+    alerts = final.get("alerts") or []
+    logger.info("=== Monitor %s done → %s (%d alert(s)) ===",
+                run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))
 
 
 def _resume(run_id: str, approve: list, reject: list) -> None:

@@ -82,3 +82,20 @@ def build_graph(checkpointer=None, nodes=None):
     g.add_edge("finalize", END)
 
     return g.compile(checkpointer=checkpointer or get_checkpointer())
+
+
+def build_monitor_graph(checkpointer=None, nodes=None):
+    """Compile the standalone monitor graph: START → monitor → END.
+
+    Run on a short market-hours schedule (separate from the daily research run).
+    """
+    from langgraph.graph import END, START, StateGraph
+
+    from agents.nodes.monitoring import monitoring_node
+
+    node = (nodes or {}).get("monitor", monitoring_node)
+    g = StateGraph(AgentState)
+    g.add_node("monitor", node)
+    g.add_edge(START, "monitor")
+    g.add_edge("monitor", END)
+    return g.compile(checkpointer=checkpointer or get_checkpointer())

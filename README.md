@@ -126,7 +126,7 @@ The graph is invoked with `recursion_limit = MAX_GRAPH_STEPS`; the debate loop i
 | **Portfolio Manager** (`nodes/portfolio.py`) | sizes by capital×pct×conviction; `MAX_OPEN_POSITIONS` + `MAX_SECTOR_PCT` caps → APPROVED/REJECTED | deterministic | done |
 | **Trading** (`nodes/trading.py`) | paper: simulate fills + persist book; live: `interrupt()` human approval → gated broker | gated | done |
 | **Broker** (`broker/groww_trader.py`) | the only order-placement seam; default-deny gate, idempotent | gated | done* |
-| **Monitoring** | scheduled (market-hours) position/market watch → alerts/stops | deterministic | planned |
+| **Monitoring** (`nodes/monitoring.py`) | scheduled (market-hours) stop-loss watch → alerts; paper auto-exit, live alert-only | deterministic | done |
 | **Memory + Backtest** | wraps backtest engine; long-term store of calls/rationales/regime | deterministic | planned |
 
 ---
@@ -259,6 +259,9 @@ python run_agents.py --unkill      # clear it
 
 # Live mode suspends for approval; resume the exact run (needs DATABASE_URL):
 python run_agents.py --resume <run_id> --approve <proposal_id> [--reject <id>]
+
+# Monitoring — short, scheduled market-hours run (stop-loss watch on open positions):
+python run_agents.py --mode monitor
 ```
 
 Each run writes `output/YYYY-MM-DD/{scores.json, report.html}` and appends `output/backtest_log.json`.
@@ -329,7 +332,7 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
   notifications/        # Telegram delivery
   agents/               # LangGraph multi-agent layer (wraps the modules above)
     graph.py state.py contracts.py supervisor.py llm.py approval.py
-    nodes/              # research, analyst, debate, risk, portfolio, trading
+    nodes/              # research, analyst, debate, risk, portfolio, trading, monitoring
     broker/groww_trader.py  # the only live order-placement seam (default-deny)
   persistence/          # Postgres ORM (runs, proposals, positions, ...) + store.py (paper book)
   observability/        # Langfuse callback + Prometheus metrics
@@ -348,4 +351,4 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
 4. ✅ Risk + Portfolio gates + paper-mode fills
 5. ✅ Groww broker + `interrupt()` human approval + Telegram/CLI resume
 6. ⬜ Live trading enablement (verify SDK params; flip `ENABLE_LIVE_TRADING` after paper validation)
-7. ⬜ Monitoring (scheduled) + Memory self-evaluation loop
+7. ✅ Monitoring (scheduled) · ⬜ Memory self-evaluation loop

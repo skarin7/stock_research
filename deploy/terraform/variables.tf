@@ -68,6 +68,19 @@ variable "job_args" {
   default = ["run_agents.py", "--mode", "research"]
 }
 
+# ── Monitoring (separate market-hours scheduled job) ───────────────────────────
+variable "enable_monitoring" {
+  type        = bool
+  description = "Provision a second Cloud Run Job + Scheduler that runs run_agents.py --mode monitor on a market-hours cadence."
+  default     = false
+}
+
+variable "monitor_schedule" {
+  type        = string
+  description = "Cron (UTC) for the monitor job. Default ~every 5 min, 08:30–16:25 IST, Mon–Fri."
+  default     = "*/5 3-10 * * 1-5"
+}
+
 # ── Non-secret config (plain env on the job) ────────────────────────────────────
 variable "stock_universe" {
   type    = string

@@ -7,6 +7,10 @@ locals {
   # Cloud Run Admin v1 endpoint to trigger a job execution (matches deploy/setup_gcp.sh).
   job_run_uri = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${var.job_name}:run"
 
+  monitor_job_name = "${var.job_name}-monitor"
+  monitor_run_uri  = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${local.monitor_job_name}:run"
+  monitor_env      = merge(local.env_vars, { ENABLE_MONITORING_AGENT = "true", AGENT_MODE = "monitor" })
+
   # All env vars on the job. Empties are filtered out so optional creds don't
   # create blank env entries. The app reads these via config.py.
   env_all = merge(
@@ -143,5 +147,74 @@ resource "google_cloud_scheduler_job" "daily" {
   depends_on = [
     google_project_service.apis,
     google_cloud_run_v2_job_iam_member.scheduler_invoker,
+  ]
+}
+
+# ── Monitoring job + market-hours scheduler (opt-in) ──────────────────────────
+resource "google_cloud_run_v2_job" "monitor" {
+  count               = var.enable_monitoring ? 1 : 0
+  name                = local.monitor_job_name
+  location            = var.region
+  deletion_protection = false
+
+  template {
+    template {
+      service_account = google_service_account.job.email
+      timeout         = "600s"
+      max_retries     = 0
+
+      containers {
+        image   = local.image
+        command = var.job_command
+        args    = ["run_agents.py", "--mode", "monitor"]
+
+        resources {
+          limits = { cpu = "1", memory = var.memory }
+        }
+
+        dynamic "env" {
+          for_each = local.monitor_env
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_cloud_run_v2_job_iam_member" "monitor_invoker" {
+  count    = var.enable_monitoring ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.monitor[0].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+resource "google_cloud_scheduler_job" "monitor" {
+  count     = var.enable_monitoring ? 1 : 0
+  name      = "${local.monitor_job_name}-cron"
+  region    = var.region
+  schedule  = var.monitor_schedule
+  time_zone = var.time_zone
+
+  http_target {
+    http_method = "POST"
+    uri         = local.monitor_run_uri
+    body        = base64encode("{}")
+    headers     = { "Content-Type" = "application/json" }
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_cloud_run_v2_job_iam_member.monitor_invoker,
   ]
 }
