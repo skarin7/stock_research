@@ -16,6 +16,7 @@ import config
 from agents.nodes.analyst import analyst_node
 from agents.nodes.debate import debate_node
 from agents.nodes.finalize import finalize_node
+from agents.nodes.memory import memory_node
 from agents.nodes.portfolio import portfolio_node
 from agents.nodes.research import research_node
 from agents.nodes.risk import risk_node
@@ -59,6 +60,7 @@ def build_graph(checkpointer=None, nodes=None):
         "portfolio": portfolio_node,
         "trading": trading_node,
         "finalize": finalize_node,
+        "memory": memory_node,
     }
     if nodes:
         impl.update(nodes)
@@ -79,7 +81,8 @@ def build_graph(checkpointer=None, nodes=None):
     g.add_conditional_edges("portfolio", next_or_finalize("trading"),
                             {"trading": "trading", "finalize": "finalize"})
     g.add_edge("trading", "finalize")
-    g.add_edge("finalize", END)
+    g.add_edge("finalize", "memory")
+    g.add_edge("memory", END)
 
     return g.compile(checkpointer=checkpointer or get_checkpointer())
 

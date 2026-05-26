@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import config
@@ -16,6 +17,10 @@ import config
 from agents.contracts import PortfolioState
 
 logger = logging.getLogger("persistence.store")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _path() -> Path:
@@ -56,6 +61,44 @@ def load_proposals() -> dict:
         except Exception:
             return {}
     return {}
+
+
+# ── long-term memory (append-only jsonl; query by namespace) ───────────────────
+
+def record_memory(namespace: str, key: str, value: dict) -> None:
+    """Append a compact memory entry (summaries, not raw payloads)."""
+    p = Path(getattr(config, "MEMORY_FILE", "output/memory.jsonl"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": _now_iso(), "namespace": namespace, "key": key, "value": value}
+    with p.open("a") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
+
+
+def query_memory(namespace: str | None = None, limit: int | None = None) -> list[dict]:
+    p = Path(getattr(config, "MEMORY_FILE", "output/memory.jsonl"))
+    if not p.exists():
+        return []
+    rows: list[dict] = []
+    for line in p.read_text().splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if namespace and e.get("namespace") != namespace:
+            continue
+        rows.append(e)
+    return rows[-limit:] if limit else rows
+
+
+def recent_calls(ticker: str, limit: int = 5) -> list[dict]:
+    """Past calls (score/conviction/rationale/regime/outcome) for a ticker — for agents to query."""
+    matches = [e["value"] for e in query_memory("calls") if e.get("value", {}).get("ticker") == ticker]
+    return matches[-limit:]
+
+
+def latest_signal_perf() -> dict | None:
+    rows = query_memory("signal_perf")
+    return rows[-1]["value"] if rows else None
 
 
 def recompute(book: PortfolioState) -> PortfolioState:

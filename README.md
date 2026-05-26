@@ -88,7 +88,7 @@ flowchart TD
     PORT -->|approve| TRD[trading]
     PORT -->|reject / terminal| FIN
     TRD --> FIN
-    FIN --> END([END])
+    FIN --> MEM[memory] --> END([END])
 
     subgraph DebateSub["debate subgraph (per top-N candidate)"]
         direction LR
@@ -127,7 +127,7 @@ The graph is invoked with `recursion_limit = MAX_GRAPH_STEPS`; the debate loop i
 | **Trading** (`nodes/trading.py`) | paper: simulate fills + persist book; live: `interrupt()` human approval → gated broker | gated | done |
 | **Broker** (`broker/groww_trader.py`) | the only order-placement seam; default-deny gate, idempotent | gated | done* |
 | **Monitoring** (`nodes/monitoring.py`) | scheduled (market-hours) stop-loss watch → alerts; paper auto-exit, live alert-only | deterministic | done |
-| **Memory + Backtest** | wraps backtest engine; long-term store of calls/rationales/regime | deterministic | planned |
+| **Memory + Backtest** (`nodes/memory.py`) | records calls/regime to long-term store + per-signal accuracy self-eval from the backtest log | deterministic | done |
 
 ---
 
@@ -274,7 +274,7 @@ Each run writes `output/YYYY-MM-DD/{scores.json, report.html}` and appends `outp
 python -m pytest tests/ -v
 ```
 
-No `.env` needed — tests mock `config` entirely and use `MemorySaver` for the graph. **45 tests** cover prompts, ranker, backtest engine, Screener filters, fundamentals + news, the LLM provider switch (`test_llm_router.py`), agent contracts + graph routing/guards (`test_graph.py`), and the bounded debate subgraph + node (`test_debate.py`).
+No `.env` needed — tests mock `config` entirely and use `MemorySaver` for the graph. **68 tests** cover prompts, ranker, backtest engine, Screener filters, fundamentals + news, the LLM provider switch, agent contracts + graph routing/guards, the bounded debate subgraph, the risk/portfolio gates + paper fills, the live broker gates + `interrupt()` approve/reject, the monitoring stop-loss watch, and the memory store + node.
 
 ---
 
@@ -332,7 +332,7 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
   notifications/        # Telegram delivery
   agents/               # LangGraph multi-agent layer (wraps the modules above)
     graph.py state.py contracts.py supervisor.py llm.py approval.py
-    nodes/              # research, analyst, debate, risk, portfolio, trading, monitoring
+    nodes/              # research, analyst, debate, risk, portfolio, trading, monitoring, memory
     broker/groww_trader.py  # the only live order-placement seam (default-deny)
   persistence/          # Postgres ORM (runs, proposals, positions, ...) + store.py (paper book)
   observability/        # Langfuse callback + Prometheus metrics
@@ -351,4 +351,4 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
 4. ✅ Risk + Portfolio gates + paper-mode fills
 5. ✅ Groww broker + `interrupt()` human approval + Telegram/CLI resume
 6. ⬜ Live trading enablement (verify SDK params; flip `ENABLE_LIVE_TRADING` after paper validation)
-7. ✅ Monitoring (scheduled) · ⬜ Memory self-evaluation loop
+7. ✅ Monitoring (scheduled) · ✅ Memory + signal self-evaluation
