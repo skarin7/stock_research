@@ -135,3 +135,7 @@ LANGFUSE_PUBLIC_KEY = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "9100"))
+# Optional: push metrics to a Prometheus Pushgateway at end of run (batch jobs
+# scale to zero, so the pull /metrics endpoint is never scraped). For Grafana
+# Cloud, point this at a Pushgateway or use Grafana Alloy (remote_write). Empty → no push.
+PROMETHEUS_PUSHGATEWAY_URL = os.environ.get("PROMETHEUS_PUSHGATEWAY_URL", "")

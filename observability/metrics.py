@@ -44,6 +44,25 @@ def start_metrics_server() -> bool:
         return False
 
 
+def push_metrics(job: str = "stock-intelligence") -> bool:
+    """Push the current metrics to a Pushgateway (for scale-to-zero batch runs).
+
+    No-op unless prometheus_client is installed AND PROMETHEUS_PUSHGATEWAY_URL is set.
+    """
+    url = getattr(config, "PROMETHEUS_PUSHGATEWAY_URL", "")
+    if not (_ENABLED and url):
+        return False
+    try:
+        from prometheus_client import REGISTRY, push_to_gateway
+
+        push_to_gateway(url, job=job, registry=REGISTRY)
+        logger.info("Pushed metrics to gateway %s (job=%s)", url, job)
+        return True
+    except Exception as e:
+        logger.warning("Metric push failed: %s", e)
+        return False
+
+
 def observe_node_latency(node: str, seconds: float) -> None:
     if _ENABLED:
         NODE_LATENCY.labels(node=node).observe(seconds)

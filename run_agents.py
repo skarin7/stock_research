@@ -122,6 +122,10 @@ def main():
               f"  python run_agents.py --resume {run_id} --approve <proposal_id> [--reject <id>]")
         return
 
+    import observability.metrics as metrics
+    metrics.set_run_cost(final.get("cost_usd", 0.0) or 0.0, final.get("tokens", 0) or 0)
+    metrics.push_metrics()
+
     status = final.get("status")
     logger.info("=== Run %s finished → %s ===", run_id, getattr(status, "value", status))
     if final.get("report_path"):
@@ -143,6 +147,8 @@ def _monitor(run_id: str, report_date, RunStatus) -> None:
                "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
     cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": config.MAX_GRAPH_STEPS}
     final = graph.invoke(initial, cfg)
+    from observability.metrics import push_metrics
+    push_metrics(job="stock-intelligence-monitor")
     alerts = final.get("alerts") or []
     logger.info("=== Monitor %s done → %s (%d alert(s)) ===",
                 run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))

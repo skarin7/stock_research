@@ -209,7 +209,8 @@ Both layers no-op when their deps/keys are absent.
 - **Langfuse** (`observability/langfuse_cb.py`) — LLM/agent traces + token/cost, one trace per run.
 - **Prometheus/Grafana** (`observability/metrics.py`) — run/node latency, scores, proposal counts, errors.
 - **Local stack:** `deploy/docker-compose.obs.yml` brings up postgres + langfuse + prometheus + grafana.
-- **Prod:** use **Langfuse Cloud + Grafana Cloud** free tiers so historical traces/metrics are viewable anytime without a 24/7 node. (Metrics push to Grafana Cloud is a pending follow-up; Langfuse Cloud already gives per-run cost/trace history.)
+- **Prod:** use **Langfuse Cloud** (free tier) — set `LANGFUSE_*` and per-run LLM cost/latency/trace history is viewable anytime, no 24/7 node. This covers the high-value observability for a daily job.
+- **Custom metrics (optional):** a Cloud Run Job scales to zero, so the pull-based `/metrics` endpoint is never scraped. Set `PROMETHEUS_PUSHGATEWAY_URL` to **push** at end of run (`metrics.push_metrics`, no-op when unset). That targets a Prometheus **Pushgateway** — **Grafana Cloud** ingests via remote_write/OTLP (run **Grafana Alloy**), not a raw gateway. For most setups Langfuse alone suffices.
 
 ---
 
@@ -293,6 +294,12 @@ bash deploy/deploy.sh --run      # deploy, then trigger one run
 ```
 
 It creates Artifact Registry, a Cloud Run **Job** (runs `run_agents.py --mode research`), a daily Cloud Scheduler trigger, and service accounts. Secrets (Anthropic/OpenRouter keys, Neon `DATABASE_URL`, Langfuse keys) are injected as env vars — **no Secret Manager** (keeps cost near zero). Nothing runs 24/7. Terraform state holds secrets, so it is gitignored.
+
+**Already deployed via `setup_gcp.sh`?** Those gcloud-created resources share names with Terraform's, so a fresh `apply` would conflict. Adopt them into state first (zero cost, no teardown):
+
+```bash
+cd deploy/terraform && terraform init && bash import.sh && terraform plan
+```
 
 ### gcloud (legacy)
 

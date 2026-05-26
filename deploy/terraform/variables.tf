@@ -120,6 +120,12 @@ variable "langfuse_host" {
   default     = "https://cloud.langfuse.com"
 }
 
+variable "prometheus_pushgateway_url" {
+  type        = string
+  description = "Optional Pushgateway URL for batch metrics. Empty = no push (Langfuse covers LLM obs)."
+  default     = ""
+}
+
 # Extra plain env vars (e.g. agent feature flags, risk limits). Merged last.
 variable "extra_env" {
   type    = map(string)

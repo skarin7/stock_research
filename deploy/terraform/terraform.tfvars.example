@@ -18,6 +18,8 @@ database_url = "postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=requi
 langfuse_public_key = "pk-lf-..."
 langfuse_secret_key = "sk-lf-..."
 langfuse_host       = "https://cloud.langfuse.com"
+# Optional batch metrics push (else leave empty — Langfuse covers LLM obs):
+# prometheus_pushgateway_url = "https://pushgateway.example.com"
 
 # --- Market data / news / delivery (optional but recommended) ---
 gemini_api_key       = ""
