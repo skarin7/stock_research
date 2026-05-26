@@ -86,6 +86,7 @@ Tests mock `config` entirely — no `.env` needed. Coverage: prompts, ranker, ba
 - **Groww rate limit** is `GROWW_RATE_LIMIT_DELAY_MS` (default 200 ms); set to 0 in tests.
 - **`MAX_STOCKS_TO_SCORE`** (default 100) caps the Groww/Claude expense: stocks are sorted by market cap and the tail is dropped before enrichment.
 - Claude models are `claude-haiku-4-5` (scoring) and `claude-sonnet-4-6` (narrative); both are in `config.py`.
+- **LLM provider switch** (`llm_router.py`): `config.LLM_PROVIDER` is `anthropic` (default) or `openrouter`. OpenRouter is OpenAI-compatible and hosts cheap reasoning models (DeepSeek/Qwen/Kimi); `OPENROUTER_SCORING_MODEL`/`OPENROUTER_REPORT_MODEL` pick the model. The scorer (`claude_scorer.py`) and narrative (`daily_report.py`) and the agent LLM factory (`agents/llm.py`) all route through it. Note: the **Anthropic Batch API (50% off) only applies to the anthropic provider** — OpenRouter uses one sync call per stock. Validate cheaper models against the backtest before trusting them for trades.
 
 ## Multi-agent architecture & conventions
 
@@ -129,3 +130,8 @@ gcloud builds submit --config cloudbuild.yaml
 ```
 
 The Dockerfile uses `python:3.12-slim` and needs `gcc`, `libxml2-dev`, `libxslt-dev` for lxml.
+
+**Terraform deploy (`deploy/terraform/` + `deploy/deploy.sh`)**: single-entrypoint provisioning of the serverless stack — Artifact Registry, a Cloud Run **Job** (runs `run_agents.py --mode research`), a daily Cloud Scheduler trigger, and service accounts. Secrets/creds (Anthropic/OpenRouter keys, Neon `DATABASE_URL`, Langfuse Cloud keys) are injected as plain env vars (no Secret Manager — keeps cost near zero). `bash deploy/deploy.sh` builds the image then `terraform apply`s; `--plan` previews, `--run` triggers a run after. State holds secrets, so it is gitignored.
+
+- **Managed observability**: prod uses **Langfuse Cloud + Grafana Cloud** (free tiers) so historical traces/metrics are viewable anytime without a 24/7 node; `deploy/docker-compose.obs.yml` is local-dev only. Metrics push to Grafana Cloud is a pending follow-up (the job currently exposes a pull-based `/metrics` endpoint that nothing scrapes in a batch run); Langfuse Cloud already gives per-run LLM cost/trace history.
+- **Monitoring agent schedule**: when the monitoring agent lands it must run as a **scheduled job every few minutes during market hours** (a second Cloud Scheduler entry hitting `run_agents.py --mode monitor`), NOT a 24/7 always-on service — an always-on Cloud Run service would break the scale-to-zero cost model.

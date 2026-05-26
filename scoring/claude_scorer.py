@@ -13,6 +13,7 @@ from typing import Optional
 import anthropic
 
 import config
+import llm_router
 from scoring.prompts import SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,50 @@ def _parse_result(result) -> Optional[dict]:
     return None
 
 
+def _extract_scorecard(text: str, sym: str) -> Optional[dict]:
+    """Lenient JSON extraction shared by the sync + OpenRouter paths."""
+    text = (text or "").strip()
+    try:
+        start, end = text.find("{"), text.rfind("}") + 1
+        if start != -1 and end > start:
+            scorecard = json.loads(text[start:end])
+            scorecard["ticker"] = sym
+            return scorecard
+    except json.JSONDecodeError as e:
+        logger.error("JSON parse error for %s: %s | raw: %.200s", sym, e, text)
+    return None
+
+
+def _score_openrouter(stocks: list[dict], news_map: dict[str, dict], macro_context: str,
+                      sector_map: Optional[dict] = None) -> list[dict]:
+    """Score via OpenRouter (OpenAI-compatible). One sync call per stock — no Batch API."""
+    sector_map = sector_map or {}
+    client = llm_router.openrouter_client()
+    model = llm_router.scoring_model()
+    all_scores = []
+    for stock in stocks:
+        sym = stock["symbol"]
+        headlines = news_map.get(sym, {}).get("headlines", [])
+        sector_macro = sector_map.get(stock.get("sector"))
+        user_content = build_user_prompt(stock, headlines, macro_context, sector_macro)
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                max_tokens=1024,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            text = resp.choices[0].message.content if resp.choices else ""
+            scorecard = _extract_scorecard(text, sym)
+            if scorecard:
+                all_scores.append(scorecard)
+        except Exception as e:
+            logger.error("OpenRouter scoring failed for %s: %s", sym, e)
+    return all_scores
+
+
 _SYNC_THRESHOLD = 20  # use synchronous API below this count; Batch API above
 
 
@@ -135,11 +180,9 @@ def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: st
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
             )
-            text = resp.content[0].text.strip() if resp.content else ""
-            start, end = text.find("{"), text.rfind("}") + 1
-            if start != -1 and end > start:
-                scorecard = json.loads(text[start:end])
-                scorecard["ticker"] = sym
+            text = resp.content[0].text if resp.content else ""
+            scorecard = _extract_scorecard(text, sym)
+            if scorecard:
                 all_scores.append(scorecard)
         except Exception as e:
             logger.error("Sync scoring failed for %s: %s", sym, e)
@@ -152,7 +195,16 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
     Score stocks using Claude Haiku.
     Uses synchronous API for small sets (< _SYNC_THRESHOLD) for speed,
     and Batch API for large sets to save cost (50% cheaper).
+
+    When config.LLM_PROVIDER == "openrouter", all scoring is routed through
+    OpenRouter (one sync call per stock — Batch API is Anthropic-only).
     """
+    if llm_router.is_openrouter():
+        logger.info("Scoring %d stocks via OpenRouter (%s)", len(stocks), llm_router.scoring_model())
+        all_scores = _score_openrouter(stocks, news_map, macro_context, sector_map)
+        logger.info("Scoring complete: %d/%d stocks successfully scored", len(all_scores), len(stocks))
+        return all_scores
+
     if len(stocks) < _SYNC_THRESHOLD:
         logger.info("Scoring %d stocks via synchronous API (faster for small sets)", len(stocks))
         all_scores = _score_sync(stocks, news_map, macro_context, sector_map)

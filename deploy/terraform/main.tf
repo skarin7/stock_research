@@ -27,6 +27,10 @@ locals {
       SCREENER_SCREEN_SLUG = var.screener_screen_slug
       STOCK_UNIVERSE       = var.stock_universe
       AGENT_MODE           = var.agent_mode
+      LLM_PROVIDER         = var.llm_provider
+      OPENROUTER_API_KEY   = var.openrouter_api_key
+      OPENROUTER_SCORING_MODEL = var.openrouter_scoring_model
+      OPENROUTER_REPORT_MODEL  = var.openrouter_report_model
     },
     var.extra_env,
   )

@@ -79,6 +79,28 @@ variable "agent_mode" {
   default = "research" # research | paper | live
 }
 
+# ── LLM provider (anthropic default; openrouter for cheap models) ───────────────
+variable "llm_provider" {
+  type    = string
+  default = "anthropic" # anthropic | openrouter
+}
+
+variable "openrouter_scoring_model" {
+  type    = string
+  default = "deepseek/deepseek-chat"
+}
+
+variable "openrouter_report_model" {
+  type    = string
+  default = "deepseek/deepseek-chat"
+}
+
+variable "openrouter_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 variable "langfuse_host" {
   type        = string
   description = "Langfuse Cloud host (e.g. https://cloud.langfuse.com or https://us.cloud.langfuse.com)."

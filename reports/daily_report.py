@@ -14,6 +14,7 @@ import anthropic
 from jinja2 import Environment, FileSystemLoader
 
 import config
+import llm_router
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,13 @@ def _generate_narrative(top_stocks: list[dict], macro_context: str = "") -> str:
         f"Today's top picks:\n{json.dumps(summary, indent=2)}"
     )
     try:
+        if llm_router.is_openrouter():
+            resp = llm_router.openrouter_client().chat.completions.create(
+                model=llm_router.report_model(),
+                max_tokens=600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return (resp.choices[0].message.content or "").strip()
         resp = _get_client().messages.create(
             model=config.REPORT_MODEL,
             max_tokens=600,

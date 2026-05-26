@@ -33,6 +33,12 @@ screener_screen_slug = ""
 stock_universe = "nifty200"
 agent_mode     = "research"
 
+# --- LLM provider: "anthropic" (default) or "openrouter" (cheap models) ---
+llm_provider = "anthropic"
+# openrouter_api_key       = "sk-or-..."
+# openrouter_scoring_model = "deepseek/deepseek-chat"
+# openrouter_report_model  = "deepseek/deepseek-chat"
+
 # Extra plain env (agent flags, risk limits) — e.g.:
 # extra_env = {
 #   ENABLE_DEBATE_AGENT = "true"

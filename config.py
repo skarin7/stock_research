@@ -25,9 +25,20 @@ SCREENER_PASSWORD = os.environ.get("SCREENER_PASSWORD", "")
 SCREENER_SCREEN_ID = os.environ.get("SCREENER_SCREEN_ID", "")
 SCREENER_SCREEN_SLUG = os.environ.get("SCREENER_SCREEN_SLUG", "")  # optional slug from URL
 
-# --- Models ---
+# --- LLM provider ---
+# "anthropic" (default) | "openrouter". OpenRouter is OpenAI-compatible and hosts
+# cheap reasoning models (DeepSeek/Qwen/Kimi) ~10-50x cheaper than Claude. The
+# Anthropic Batch API (50% off) only applies to the anthropic provider; OpenRouter
+# uses concurrent sync calls. See llm_router.py.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+# --- Models (per provider; Claude models are the default) ---
 SCORING_MODEL = "claude-haiku-4-5"
 REPORT_MODEL = "claude-sonnet-4-6"
+OPENROUTER_SCORING_MODEL = os.environ.get("OPENROUTER_SCORING_MODEL", "deepseek/deepseek-chat")
+OPENROUTER_REPORT_MODEL = os.environ.get("OPENROUTER_REPORT_MODEL", "deepseek/deepseek-chat")
 
 # --- Signal weights (must sum to 1.0) ---
 SIGNAL_WEIGHTS = {
