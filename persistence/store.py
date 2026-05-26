@@ -39,6 +39,25 @@ def save_portfolio(book: PortfolioState) -> None:
     logger.info("portfolio saved → %s (%d positions)", p, len(book.positions))
 
 
+def save_proposals(proposals) -> None:
+    """Persist proposals (keyed by id) so an out-of-process approver can see them."""
+    p = Path(getattr(config, "PROPOSALS_FILE", "output/proposals.json"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    existing = load_proposals()
+    existing.update({pr.proposal_id: pr.model_dump() for pr in proposals})
+    p.write_text(json.dumps(existing, indent=2, default=str))
+
+
+def load_proposals() -> dict:
+    p = Path(getattr(config, "PROPOSALS_FILE", "output/proposals.json"))
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
 def recompute(book: PortfolioState) -> PortfolioState:
     """Recompute total + per-sector exposure (value at entry) from positions."""
     total = 0.0

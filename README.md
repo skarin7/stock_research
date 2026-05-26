@@ -124,7 +124,8 @@ The graph is invoked with `recursion_limit = MAX_GRAPH_STEPS`; the debate loop i
 | **Debate** (`nodes/debate.py`) | bounded bull↔bear→synthesize subgraph per top-`DEBATE_TOP_N` → `ConvictionView` | LLM | **done** |
 | **Risk Manager** (`nodes/risk.py`) | long-only, min-conviction, earnings block, no-duplicate → `RiskCheck` gate | deterministic | done |
 | **Portfolio Manager** (`nodes/portfolio.py`) | sizes by capital×pct×conviction; `MAX_OPEN_POSITIONS` + `MAX_SECTOR_PCT` caps → APPROVED/REJECTED | deterministic | done |
-| **Trading** (`nodes/trading.py`) | paper: simulate fills + persist book; live: `interrupt()` approval → broker | gated | paper done; live deferred |
+| **Trading** (`nodes/trading.py`) | paper: simulate fills + persist book; live: `interrupt()` human approval → gated broker | gated | done |
+| **Broker** (`broker/groww_trader.py`) | the only order-placement seam; default-deny gate, idempotent | gated | done* |
 | **Monitoring** | scheduled (market-hours) position/market watch → alerts/stops | deterministic | planned |
 | **Memory + Backtest** | wraps backtest engine; long-term store of calls/rationales/regime | deterministic | planned |
 
@@ -166,7 +167,9 @@ stateDiagram-v2
     approved --> halted: kill-switch
 ```
 
-Mechanism (later iteration): the Trading node persists the proposal, sends a Telegram `/approve <id>` / `/reject <id>`, then calls LangGraph **`interrupt()`** — the run suspends with full state checkpointed in Postgres (`AWAITING_APPROVAL`). A human reply resumes the *exact* run via `Command(resume=...)`. The broker call reads `status == "approved"` **from Postgres**, not from memory (two-key separation), and re-checks the flags/kill-switch at call time.
+Mechanism (`agents/nodes/trading.py` + `agents/approval.py` + `agents/broker/groww_trader.py`): in live mode the Trading node marks each approved proposal `AWAITING_APPROVAL`, persists it, and calls LangGraph **`interrupt()`** — the run suspends with full state checkpointed (`AWAITING_APPROVAL`) and the orchestrator sends the Telegram `/approve <id>` / `/reject <id>` message. A human reply resumes the *exact* run via `Command(resume=decisions)` (`run_agents.py --resume <run_id> --approve/--reject <id>`). Only then does the broker run — and `place_order` is **default-deny**, re-checking `mode=="live"` + `ENABLE_LIVE_TRADING` + `GROWW_TRADING_ENABLED` + no kill-switch, and refusing to resubmit a proposal that already has a `broker_order_id`.
+
+> **\*Broker note:** live order placement is gated OFF by default and the exact `growwapi` `place_order` params should be verified against your installed SDK before enabling. **Cross-process resume requires `DATABASE_URL`** so the suspended run lives in the Postgres checkpointer; with the in-memory fallback, resume only works within the same process.
 
 ---
 
@@ -253,6 +256,9 @@ python main.py --date 2026-05-14
 python run_agents.py --mode research [--dry-run] [--date YYYY-MM-DD]
 python run_agents.py --kill        # engage kill-switch (creates output/kill_switch.flag)
 python run_agents.py --unkill      # clear it
+
+# Live mode suspends for approval; resume the exact run (needs DATABASE_URL):
+python run_agents.py --resume <run_id> --approve <proposal_id> [--reject <id>]
 ```
 
 Each run writes `output/YYYY-MM-DD/{scores.json, report.html}` and appends `output/backtest_log.json`.
@@ -322,8 +328,9 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
   reports/              # HTML report (Jinja2) + LLM narrative
   notifications/        # Telegram delivery
   agents/               # LangGraph multi-agent layer (wraps the modules above)
-    graph.py state.py contracts.py supervisor.py llm.py
+    graph.py state.py contracts.py supervisor.py llm.py approval.py
     nodes/              # research, analyst, debate, risk, portfolio, trading
+    broker/groww_trader.py  # the only live order-placement seam (default-deny)
   persistence/          # Postgres ORM (runs, proposals, positions, ...) + store.py (paper book)
   observability/        # Langfuse callback + Prometheus metrics
   deploy/               # deploy.sh + terraform/ + docker-compose.obs.yml + setup_gcp.sh
@@ -339,6 +346,6 @@ For a once-daily research run, infra is essentially free (Cloud Run Job scales t
 2. ✅ OpenRouter provider option
 3. ✅ Bull/Bear debate subgraph
 4. ✅ Risk + Portfolio gates + paper-mode fills
-5. ⬜ Broker + `interrupt()` approval + Telegram resume (paper → live)
-6. ⬜ Live trading enablement
+5. ✅ Groww broker + `interrupt()` human approval + Telegram/CLI resume
+6. ⬜ Live trading enablement (verify SDK params; flip `ENABLE_LIVE_TRADING` after paper validation)
 7. ⬜ Monitoring (scheduled) + Memory self-evaluation loop

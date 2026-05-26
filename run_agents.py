@@ -34,6 +34,12 @@ def parse_args():
     p.add_argument("--dry-run", action="store_true", help="Limit to DRY_RUN_STOCK_COUNT stocks")
     p.add_argument("--kill", action="store_true", help="Engage the kill-switch and exit")
     p.add_argument("--unkill", action="store_true", help="Clear the kill-switch and exit")
+    # Resume a run suspended at the trade-approval interrupt (needs DATABASE_URL).
+    p.add_argument("--resume", metavar="RUN_ID", help="Resume a run awaiting trade approval")
+    p.add_argument("--approve", action="append", default=[], metavar="PROPOSAL_ID",
+                   help="Approve a proposal id (repeatable); used with --resume")
+    p.add_argument("--reject", action="append", default=[], metavar="PROPOSAL_ID",
+                   help="Reject a proposal id (repeatable); used with --resume")
     return p.parse_args()
 
 
@@ -57,6 +63,10 @@ def main():
 
     if args.kill or args.unkill:
         _toggle_kill(args.kill)
+        return
+
+    if args.resume:
+        _resume(args.resume, args.approve, args.reject)
         return
 
     if args.mode:
@@ -88,10 +98,43 @@ def main():
 
     final = graph.invoke(initial, cfg)
 
+    # Suspended at the trade-approval interrupt? Notify the human and stop here.
+    interrupts = final.get("__interrupt__")
+    if interrupts:
+        payload = getattr(interrupts[0], "value", interrupts[0])
+        from agents.approval import send_approval_request
+
+        send_approval_request(payload)
+        logger.warning("=== Run %s AWAITING APPROVAL — %d proposal(s) ===",
+                       run_id, len(payload.get("proposals", [])))
+        if not config.DATABASE_URL:
+            logger.warning("DATABASE_URL unset: this suspended run is in-memory only and cannot be "
+                           "resumed from a separate process. Set DATABASE_URL for live approvals.")
+        print(f"\nAwaiting approval. Resume with:\n"
+              f"  python run_agents.py --resume {run_id} --approve <proposal_id> [--reject <id>]")
+        return
+
     status = final.get("status")
     logger.info("=== Run %s finished → %s ===", run_id, getattr(status, "value", status))
     if final.get("report_path"):
         print(f"\nReport ready: {final['report_path']}")
+    if status not in (RunStatus.COMPLETED, RunStatus.AWAITING_APPROVAL):
+        sys.exit(1)
+
+
+def _resume(run_id: str, approve: list, reject: list) -> None:
+    import config  # noqa: F401  (ensures env loaded)
+
+    from agents.approval import decisions_from_lists, resume_run
+    from agents.state import RunStatus
+
+    decisions = decisions_from_lists(approve, reject)
+    if not decisions:
+        logger.error("No --approve/--reject ids given — nothing to resume")
+        sys.exit(1)
+    final = resume_run(run_id, decisions)
+    status = final.get("status")
+    logger.info("=== Run %s resumed → %s ===", run_id, getattr(status, "value", status))
     if status not in (RunStatus.COMPLETED, RunStatus.AWAITING_APPROVAL):
         sys.exit(1)
 

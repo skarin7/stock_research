@@ -127,6 +127,7 @@ MIN_CONVICTION_TO_TRADE = float(os.environ.get("MIN_CONVICTION_TO_TRADE", "0.6")
 # Persistence (Postgres for agent + trading state; research output stays as files)
 DATABASE_URL = os.environ.get("DATABASE_URL", "")                          # empty → MemorySaver fallback
 POSITIONS_FILE = os.path.join(OUTPUT_DIR, "positions.json")
+PROPOSALS_FILE = os.path.join(OUTPUT_DIR, "proposals.json")   # awaiting-approval proposals (approver visibility)
 MEMORY_FILE = os.path.join(OUTPUT_DIR, "memory.jsonl")
 
 # Observability (self-hosted: Langfuse traces + Prometheus/Grafana metrics)

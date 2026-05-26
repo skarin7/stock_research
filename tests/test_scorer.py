@@ -45,6 +45,15 @@ mock_config.OUTPUT_DIR = "output"
 sys.modules["config"] = mock_config
 
 
+@pytest.fixture(autouse=True)
+def _use_mock_config():
+    # Other test files install their own config into sys.modules; reassert ours so
+    # this file's lazy `import config` (ranker/screener) binds correctly regardless
+    # of collection/run order.
+    sys.modules["config"] = mock_config
+    yield
+
+
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 SAMPLE_SCORECARD = {
