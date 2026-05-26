@@ -78,17 +78,18 @@ flowchart LR
 ```mermaid
 flowchart TD
     START([START]) --> RES[research]
-    RES -->|RUNNING| ANA[analyst]
-    RES -->|terminal| FIN[finalize]
+    RES --> ANA[analyst]
     ANA -->|ENABLE_DEBATE_AGENT| DEB[debate]
-    ANA -->|else / terminal| FIN
+    ANA -->|else| FIN[finalize]
     DEB --> RISK[risk gate]
-    RISK -->|pass| PORT[portfolio gate]
-    RISK -->|block / terminal| FIN
-    PORT -->|approve| TRD[trading]
-    PORT -->|reject / terminal| FIN
+    RISK --> PORT[portfolio gate]
+    PORT --> TRD[trading]
     TRD --> FIN
     FIN --> MEM[memory] --> END([END])
+    RES -. terminal .-> FIN
+    DEB -. terminal .-> FIN
+    RISK -. terminal .-> FIN
+    PORT -. terminal .-> FIN
 
     subgraph DebateSub["debate subgraph (per top-N candidate)"]
         direction LR
@@ -98,7 +99,7 @@ flowchart TD
     end
 ```
 
-Default-on path is `research → analyst → finalize` (research mode). `debate`, `risk`, `portfolio`, and `trading` are each gated by their `ENABLE_*` flag.
+Default-on path is `research → analyst → finalize → memory` (research mode). `debate`, `risk`, `portfolio`, `trading`, and `memory` are each gated by their `ENABLE_*` flag. The risk/portfolio gates mark individual proposals BLOCKED/REJECTED but the run still advances; only a **terminal run status** (HALTED / FAILED / BUDGET_EXCEEDED) short-circuits straight to `finalize`.
 
 ### The `agent_node` supervisor contract
 

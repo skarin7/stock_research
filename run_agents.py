@@ -1,11 +1,12 @@
 """Multi-agent entrypoint (parallel to main.py).
 
-    python run_agents.py --mode research [--dry-run] [--date YYYY-MM-DD]
-    python run_agents.py --kill        # create the kill-switch flag
-    python run_agents.py --unkill      # remove it
+    python run_agents.py --mode research|paper|live [--dry-run] [--date YYYY-MM-DD]
+    python run_agents.py --mode monitor             # market-hours stop-loss watch
+    python run_agents.py --resume <run_id> --approve <id> [--reject <id>]
+    python run_agents.py --kill | --unkill          # toggle the kill-switch flag
 
 In research mode this reproduces main.py's report + Telegram output, but routed
-through the LangGraph orchestrator (research → analyst → finalize).
+through the LangGraph orchestrator (research → analyst → finalize → memory).
 """
 
 from __future__ import annotations
