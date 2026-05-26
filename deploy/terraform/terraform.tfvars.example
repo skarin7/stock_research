@@ -1,0 +1,40 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# Alternatively export TF_VAR_<name> environment variables (preferred in CI).
+
+# --- GCP (defaults already match your project; override if needed) ---
+# project_id = "gen-lang-client-0533266855"
+# region     = "asia-south1"
+
+# --- Required ---
+anthropic_api_key = "sk-ant-..."
+
+# --- Durable state: Neon serverless Postgres connection string ---
+# Create a free project at https://neon.tech, copy the pooled connection string.
+# Leave empty to run research-only with in-memory state (no resumable runs).
+database_url = "postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require"
+
+# --- Observability: Langfuse Cloud (managed, free tier) ---
+# Create a project at https://cloud.langfuse.com, copy the API keys.
+langfuse_public_key = "pk-lf-..."
+langfuse_secret_key = "sk-lf-..."
+langfuse_host       = "https://cloud.langfuse.com"
+
+# --- Market data / news / delivery (optional but recommended) ---
+gemini_api_key       = ""
+groww_totp_token     = ""
+groww_totp_secret    = ""
+telegram_bot_token   = ""
+telegram_chat_id     = ""
+screener_email       = ""
+screener_password    = ""
+screener_screen_id   = ""
+screener_screen_slug = ""
+
+stock_universe = "nifty200"
+agent_mode     = "research"
+
+# Extra plain env (agent flags, risk limits) — e.g.:
+# extra_env = {
+#   ENABLE_DEBATE_AGENT = "true"
+#   MAX_DEBATE_ROUNDS   = "3"
+# }
