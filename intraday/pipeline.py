@@ -13,9 +13,10 @@ import logging
 from datetime import date
 from typing import Optional
 
-import config
+from config import SETTINGS
 
 from . import data_sources, signals, technicals
+from .types import WatchlistItem
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +26,19 @@ def _load_universe() -> list[dict]:
     path isn't intraday-relevant, so it falls back to nifty200."""
     from scrapers.nse_index import fetch_index_stocks
 
-    universe = config.STOCK_UNIVERSE
+    universe = SETTINGS.STOCK_UNIVERSE
     if universe not in ("nifty50", "nifty100", "nifty200", "nifty500"):
         logger.info("STOCK_UNIVERSE=%s not an index — using nifty200 for intraday", universe)
         universe = "nifty200"
     return fetch_index_stocks(universe)
 
 
-def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> list[dict]:
+def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> list[WatchlistItem]:
     """Score the universe and return the ranked watchlist (score ≥ threshold)."""
     ref = report_date or date.today()
     stocks = _load_universe()
     if dry_run:
-        stocks = stocks[: config.DRY_RUN_STOCK_COUNT]
+        stocks = stocks[: SETTINGS.DRY_RUN_STOCK_COUNT]
     logger.info("Intraday scoring %d stocks for %s", len(stocks), ref.isoformat())
 
     # ── Shared / bulk data (fetched once) ────────────────────────────────
@@ -50,7 +51,7 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
         sym = stock["symbol"]
         logger.info("Scoring %d/%d: %s", i + 1, len(stocks), sym)
 
-        candles = data_sources.fetch_history(sym, days=config.INTRADAY_HISTORY_DAYS, to_date=ref)
+        candles = data_sources.fetch_history(sym, days=SETTINGS.INTRADAY_HISTORY_DAYS, to_date=ref)
         metrics = technicals.compute_metrics(candles)
         oi = data_sources.option_chain_signals(sym)
 
@@ -78,12 +79,12 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
         result["company"] = stock.get("company", "")
         result["sector"] = stock.get("sector")
         result["close"] = metrics["close"]
-        result["conviction"] = signals.conviction(result["score"], config.INTRADAY_HIGH_CONVICTION)
+        result["conviction"] = signals.conviction(result["score"], SETTINGS.INTRADAY_HIGH_CONVICTION)
         scored.append(result)
 
-    watchlist = [r for r in scored if r["score"] >= config.INTRADAY_SCORE_THRESHOLD]
+    watchlist = [r for r in scored if r["score"] >= SETTINGS.INTRADAY_SCORE_THRESHOLD]
     watchlist.sort(key=lambda r: r["score"], reverse=True)
-    watchlist = watchlist[: config.INTRADAY_TOP_N]
+    watchlist = watchlist[: SETTINGS.INTRADAY_TOP_N]
     logger.info("Watchlist: %d stocks ≥ %d (from %d scored)",
-                len(watchlist), config.INTRADAY_SCORE_THRESHOLD, len(scored))
+                len(watchlist), SETTINGS.INTRADAY_SCORE_THRESHOLD, len(scored))
     return watchlist

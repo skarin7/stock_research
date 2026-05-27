@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.nodes.analyst import analyst_node
 from agents.nodes.debate import debate_node
@@ -29,11 +29,11 @@ logger = logging.getLogger("agents.graph")
 
 def get_checkpointer():
     """Postgres checkpointer when DATABASE_URL is set; else in-memory (dev/tests)."""
-    if config.DATABASE_URL:
+    if SETTINGS.DATABASE_URL:
         try:
             from langgraph.checkpoint.postgres import PostgresSaver
 
-            saver = PostgresSaver.from_conn_string(config.DATABASE_URL)
+            saver = PostgresSaver.from_conn_string(SETTINGS.DATABASE_URL)
             saver.setup()
             logger.info("Using PostgresSaver checkpointer")
             return saver

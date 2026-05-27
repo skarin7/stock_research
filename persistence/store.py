@@ -1,6 +1,6 @@
 """Portfolio (book) persistence for paper mode.
 
-File-based store keyed on ``config.POSITIONS_FILE`` so paper positions persist
+File-based store keyed on ``SETTINGS.POSITIONS_FILE`` so paper positions persist
 across runs without a database (mirrors the MemorySaver fallback used elsewhere).
 DB-backed positions land with the live order lifecycle (broker iteration).
 """
@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-import config
+from config import SETTINGS
 
 from agents.contracts import PortfolioState
 
@@ -24,7 +24,7 @@ def _now_iso() -> str:
 
 
 def _path() -> Path:
-    return Path(getattr(config, "POSITIONS_FILE", "output/positions.json"))
+    return Path(getattr(SETTINGS, "POSITIONS_FILE", "output/positions.json"))
 
 
 def load_portfolio() -> PortfolioState:
@@ -34,7 +34,7 @@ def load_portfolio() -> PortfolioState:
             return PortfolioState(**json.loads(p.read_text()))
         except Exception as e:  # corrupt / schema drift → start fresh
             logger.warning("could not load portfolio (%s) — starting fresh", e)
-    return PortfolioState(cash=float(getattr(config, "TRADING_CAPITAL_INR", 0.0)))
+    return PortfolioState(cash=float(getattr(SETTINGS, "TRADING_CAPITAL_INR", 0.0)))
 
 
 def save_portfolio(book: PortfolioState) -> None:
@@ -46,7 +46,7 @@ def save_portfolio(book: PortfolioState) -> None:
 
 def save_proposals(proposals) -> None:
     """Persist proposals (keyed by id) so an out-of-process approver can see them."""
-    p = Path(getattr(config, "PROPOSALS_FILE", "output/proposals.json"))
+    p = Path(getattr(SETTINGS, "PROPOSALS_FILE", "output/proposals.json"))
     p.parent.mkdir(parents=True, exist_ok=True)
     existing = load_proposals()
     existing.update({pr.proposal_id: pr.model_dump() for pr in proposals})
@@ -54,7 +54,7 @@ def save_proposals(proposals) -> None:
 
 
 def load_proposals() -> dict:
-    p = Path(getattr(config, "PROPOSALS_FILE", "output/proposals.json"))
+    p = Path(getattr(SETTINGS, "PROPOSALS_FILE", "output/proposals.json"))
     if p.exists():
         try:
             return json.loads(p.read_text())
@@ -67,7 +67,7 @@ def load_proposals() -> dict:
 
 def record_memory(namespace: str, key: str, value: dict) -> None:
     """Append a compact memory entry (summaries, not raw payloads)."""
-    p = Path(getattr(config, "MEMORY_FILE", "output/memory.jsonl"))
+    p = Path(getattr(SETTINGS, "MEMORY_FILE", "output/memory.jsonl"))
     p.parent.mkdir(parents=True, exist_ok=True)
     entry = {"ts": _now_iso(), "namespace": namespace, "key": key, "value": value}
     with p.open("a") as f:
@@ -75,7 +75,7 @@ def record_memory(namespace: str, key: str, value: dict) -> None:
 
 
 def query_memory(namespace: str | None = None, limit: int | None = None) -> list[dict]:
-    p = Path(getattr(config, "MEMORY_FILE", "output/memory.jsonl"))
+    p = Path(getattr(SETTINGS, "MEMORY_FILE", "output/memory.jsonl"))
     if not p.exists():
         return []
     rows: list[dict] = []

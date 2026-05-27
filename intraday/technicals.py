@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+from intraday.types import MetricsDict
+
 Candle = Sequence  # [date, open, high, low, close, volume]
 
 _CLOSE = 4
@@ -76,7 +78,7 @@ def avg_volume(volumes: list[float], n: int) -> Optional[float]:
     return sum(window) / len(window)
 
 
-def compute_metrics(candles: list[Candle]) -> dict:
+def compute_metrics(candles: list[Candle]) -> MetricsDict:
     """Derive the technical inputs the scorer needs from a candle list.
 
     Returns a dict with: close, volume_today, today_change_pct, change_3d_pct,

@@ -1,7 +1,7 @@
 """Provider-agnostic LLM routing.
 
 Lets every LLM call site switch between Anthropic (default) and OpenRouter
-(OpenAI-compatible, cheap reasoning models) via ``config.LLM_PROVIDER`` without
+(OpenAI-compatible, cheap reasoning models) via ``SETTINGS.LLM_PROVIDER`` without
 each module re-implementing client setup or model resolution.
 
 The OpenRouter client is the ``openai`` SDK pointed at OpenRouter's base URL;
@@ -11,14 +11,14 @@ using the openrouter provider.
 
 from __future__ import annotations
 
-import config
+from config import SETTINGS
 
 _openrouter_client = None
 
 
 def provider() -> str:
     """Active provider: 'anthropic' (default) or 'openrouter'."""
-    return getattr(config, "LLM_PROVIDER", "anthropic")
+    return getattr(SETTINGS, "LLM_PROVIDER", "anthropic")
 
 
 def is_openrouter() -> bool:
@@ -26,11 +26,11 @@ def is_openrouter() -> bool:
 
 
 def scoring_model() -> str:
-    return config.OPENROUTER_SCORING_MODEL if is_openrouter() else config.SCORING_MODEL
+    return SETTINGS.OPENROUTER_SCORING_MODEL if is_openrouter() else SETTINGS.SCORING_MODEL
 
 
 def report_model() -> str:
-    return config.OPENROUTER_REPORT_MODEL if is_openrouter() else config.REPORT_MODEL
+    return SETTINGS.OPENROUTER_REPORT_MODEL if is_openrouter() else SETTINGS.REPORT_MODEL
 
 
 def openrouter_client():
@@ -40,7 +40,7 @@ def openrouter_client():
         from openai import OpenAI  # lazy
 
         _openrouter_client = OpenAI(
-            base_url=config.OPENROUTER_BASE_URL,
-            api_key=config.OPENROUTER_API_KEY,
+            base_url=SETTINGS.OPENROUTER_BASE_URL,
+            api_key=SETTINGS.OPENROUTER_API_KEY,
         )
     return _openrouter_client

@@ -16,7 +16,7 @@ import logging
 import time
 from typing import Callable, Optional
 
-import config
+from config import SETTINGS
 
 from agents.state import AgentState, RunStatus
 from agents.supervisor import audit_entry, budget_exceeded, kill_switch_active
@@ -43,7 +43,7 @@ def agent_node(name: str, enabled_flag: Optional[str] = None) -> Callable:
                 return {"status": RunStatus.BUDGET_EXCEEDED,
                         "audit": [audit_entry(name, state.get("status"), RunStatus.BUDGET_EXCEEDED, "budget")]}
 
-            if enabled_flag is not None and not getattr(config, enabled_flag, False):
+            if enabled_flag is not None and not getattr(SETTINGS, enabled_flag, False):
                 logger.info("[%s] disabled (%s=False) — skipping", name, enabled_flag)
                 return {"audit": [audit_entry(name, state.get("status"), state.get("status"), "skipped (disabled)")]}
 

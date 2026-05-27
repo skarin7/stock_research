@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,12 @@ def get_callbacks() -> list:
     global _handler, _resolved
     if not _resolved:
         _resolved = True
-        if config.LANGFUSE_PUBLIC_KEY and config.LANGFUSE_SECRET_KEY:
+        if SETTINGS.LANGFUSE_PUBLIC_KEY and SETTINGS.LANGFUSE_SECRET_KEY:
             try:
                 from langfuse.langchain import CallbackHandler
 
                 _handler = CallbackHandler()
-                logger.info("Langfuse tracing enabled (host=%s)", config.LANGFUSE_HOST)
+                logger.info("Langfuse tracing enabled (host=%s)", SETTINGS.LANGFUSE_HOST)
             except Exception as e:  # missing dep or bad config — degrade silently
                 logger.info("Langfuse unavailable (%s) — tracing disabled", e)
                 _handler = None

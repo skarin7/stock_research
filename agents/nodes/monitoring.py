@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.contracts import Alert
 from agents.nodes.base import agent_node
@@ -31,8 +31,8 @@ logger = logging.getLogger("agents.monitor")
 def _current_price(ticker: str):
     """Live price for a ticker (Groww quote → yfinance fallback). Monkeypatched in tests."""
     try:
-        from enrichment.groww_client import get_quote
-        q = get_quote(ticker)
+        from enrichment.market_data import get_default_provider
+        q = get_default_provider().get_quote(ticker)
         if q and q.get("ltp"):
             return float(q["ltp"])
     except Exception:
@@ -46,12 +46,12 @@ def _current_price(ticker: str):
 
 
 def _notify(alerts: list[Alert]) -> None:
-    if not (getattr(config, "TELEGRAM_BOT_TOKEN", "") and getattr(config, "TELEGRAM_CHAT_ID", "")):
+    if not (getattr(SETTINGS, "TELEGRAM_BOT_TOKEN", "") and getattr(SETTINGS, "TELEGRAM_CHAT_ID", "")):
         return
     from notifications.telegram_notifier import _send_text
 
     body = "\n".join(f"{a.severity.upper()} <b>{a.ticker}</b>: {a.message}" for a in alerts)
-    _send_text(config.TELEGRAM_CHAT_ID, f"<b>⚠️ Position alerts</b>\n{body}")
+    _send_text(SETTINGS.TELEGRAM_CHAT_ID, f"<b>⚠️ Position alerts</b>\n{body}")
 
 
 @agent_node("monitor", enabled_flag="ENABLE_MONITORING_AGENT")
@@ -61,7 +61,7 @@ def monitoring_node(state: AgentState) -> dict:
         logger.info("monitor: no open positions")
         return {"status": RunStatus.COMPLETED}
 
-    live = bool(getattr(config, "ENABLE_LIVE_TRADING", False))
+    live = bool(getattr(SETTINGS, "ENABLE_LIVE_TRADING", False))
     alerts: list[Alert] = []
     remaining = []
     exited = 0

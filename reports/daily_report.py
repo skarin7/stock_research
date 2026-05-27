@@ -13,7 +13,7 @@ from typing import Optional
 import anthropic
 from jinja2 import Environment, FileSystemLoader
 
-import config
+from config import SETTINGS
 import llm_router
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ _client: Optional[anthropic.Anthropic] = None
 def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        _client = anthropic.Anthropic(api_key=SETTINGS.ANTHROPIC_API_KEY)
     return _client
 
 
@@ -63,7 +63,7 @@ def _generate_narrative(top_stocks: list[dict], macro_context: str = "") -> str:
             )
             return (resp.choices[0].message.content or "").strip()
         resp = _get_client().messages.create(
-            model=config.REPORT_MODEL,
+            model=SETTINGS.REPORT_MODEL,
             max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -131,7 +131,7 @@ def write_report(
     """
     target_date = report_date or date.today()
     date_str = target_date.strftime("%Y-%m-%d")
-    output_dir = Path(config.OUTPUT_DIR) / date_str
+    output_dir = Path(SETTINGS.OUTPUT_DIR) / date_str
     output_dir.mkdir(parents=True, exist_ok=True)
 
     save_scores_json(all_scores, output_dir)

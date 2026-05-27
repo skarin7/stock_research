@@ -1,7 +1,7 @@
 """Data fetchers for the intraday scorer.
 
 Reliable sources first: daily OHLCV and per-stock PCR / Call-OI come from the
-official Groww API (via enrichment.groww_client, which falls back to yfinance for
+official Groww API (via enrichment.market_data, which falls back to yfinance for
 history when Groww historical data isn't subscribed). 52-week high is derived
 from the candles. The only remaining fragile NSE-web scrapes are next-day board
 meetings (S1) and the ASM/GSM surveillance list (N4) — there is no Groww endpoint
@@ -18,39 +18,40 @@ from typing import Optional
 
 import requests
 
-logger = logging.getLogger(__name__)
+from scrapers.http_client import nse_session
 
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.nseindia.com/",
-}
+logger = logging.getLogger(__name__)
 
 _NSE_BASE = "https://www.nseindia.com"
 
 
 # ── Reliable: Groww OHLCV + option chain (yfinance fallback for history) ──────
 
-def fetch_history(symbol: str, days: int = 400, to_date: Optional[date] = None) -> list[list]:
-    """Daily OHLCV candles ``[[date_str, o, h, l, c, volume], ...]`` ascending.
+_provider = None
 
-    Delegates to the Groww client (official historical endpoint, yfinance
+
+def _get_provider():
+    global _provider
+    if _provider is None:
+        from enrichment.market_data import get_default_provider
+        _provider = get_default_provider()
+    return _provider
+
+
+def fetch_history(symbol: str, days: int = 400, to_date: Optional[date] = None) -> list:
+    """Daily OHLCV candles ``[(date_str, o, h, l, c, volume), ...]`` ascending.
+
+    Delegates to the default market-data provider (Groww historical → yfinance
     fallback). Defaults to ~400 days so the 52-week high is derivable from the
     same candles. Empty list on failure.
     """
-    from enrichment import groww_client
-    return groww_client.get_ohlcv(symbol, days=days, to_date=to_date)
+    return _get_provider().get_ohlcv(symbol, days=days, to_date=to_date)
 
 
 def option_chain_signals(symbol: str) -> dict:
     """Per-stock PCR and unusual-Call-OI flag from the Groww option chain.
     Returns ``{"pcr": float|None, "unusual_call_oi": bool}``."""
-    from enrichment import groww_client
-    return groww_client.get_option_chain_pcr(symbol)
+    return _get_provider().get_option_chain(symbol)
 
 
 def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
@@ -84,8 +85,7 @@ def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
 
 def _nse_session() -> Optional[requests.Session]:
     """Prime an NSE session with cookies (NSE rejects API calls without them)."""
-    s = requests.Session()
-    s.headers.update(_BROWSER_HEADERS)
+    s = nse_session()
     try:
         s.get(_NSE_BASE, timeout=10)
         return s

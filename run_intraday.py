@@ -13,6 +13,8 @@ import argparse
 import logging
 from datetime import date
 
+import config  # noqa: F401  (import builds SETTINGS / loads .env)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
@@ -31,7 +33,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-    import config  # noqa: F401  (loads .env)
 
     from intraday.pipeline import run_pipeline
     from intraday.report import build_alert, write_watchlist
@@ -45,7 +46,8 @@ def main():
 
     nifty_chg = data_sources.nifty_change_pct(report_date)
     alert = build_alert(watchlist, report_date, nifty_chg)
-    print("\n" + alert.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", ""))
+    plain = alert.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+    logger.info("Intraday alert:\n%s", plain)
 
     if not args.no_telegram:
         from notifications.telegram_notifier import send_intraday_watchlist

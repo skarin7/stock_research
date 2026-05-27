@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +31,13 @@ if _ENABLED:
 
 
 def start_metrics_server() -> bool:
-    """Expose /metrics on config.METRICS_PORT. Returns True if started."""
+    """Expose /metrics on SETTINGS.METRICS_PORT. Returns True if started."""
     if not _ENABLED:
         logger.debug("prometheus_client not installed — metrics server not started")
         return False
     try:
-        start_http_server(config.METRICS_PORT)
-        logger.info("Prometheus metrics on :%d", config.METRICS_PORT)
+        start_http_server(SETTINGS.METRICS_PORT)
+        logger.info("Prometheus metrics on :%d", SETTINGS.METRICS_PORT)
         return True
     except Exception as e:
         logger.warning("Could not start metrics server: %s", e)
@@ -49,7 +49,7 @@ def push_metrics(job: str = "stock-intelligence") -> bool:
 
     No-op unless prometheus_client is installed AND PROMETHEUS_PUSHGATEWAY_URL is set.
     """
-    url = getattr(config, "PROMETHEUS_PUSHGATEWAY_URL", "")
+    url = getattr(SETTINGS, "PROMETHEUS_PUSHGATEWAY_URL", "")
     if not (_ENABLED and url):
         return False
     try:

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.contracts import ProposalStatus, RiskCheck
 from agents.nodes.base import agent_node
@@ -33,10 +33,10 @@ def portfolio_node(state: AgentState) -> dict:
     stock_by = {s.symbol: s for s in (enriched.stocks if enriched else [])}
     book = state.get("book") or load_portfolio()
 
-    capital = float(getattr(config, "TRADING_CAPITAL_INR", 0.0))
-    max_open = int(getattr(config, "MAX_OPEN_POSITIONS", 5))
-    max_pos_pct = float(getattr(config, "MAX_POSITION_PCT", 0.10))
-    max_sector_pct = float(getattr(config, "MAX_SECTOR_PCT", 0.30))
+    capital = float(getattr(SETTINGS, "TRADING_CAPITAL_INR", 0.0))
+    max_open = int(getattr(SETTINGS, "MAX_OPEN_POSITIONS", 5))
+    max_pos_pct = float(getattr(SETTINGS, "MAX_POSITION_PCT", 0.10))
+    max_sector_pct = float(getattr(SETTINGS, "MAX_SECTOR_PCT", 0.30))
 
     open_count = len(book.positions)
     sector_value = dict(book.sector_exposure)   # running per-sector value (incl. existing)

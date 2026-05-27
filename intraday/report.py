@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def build_alert(
     lines.append("")
 
     if not watchlist:
-        lines.append(f"No stocks scored ≥ {config.INTRADAY_SCORE_THRESHOLD} today. No edge — sit out.")
+        lines.append(f"No stocks scored ≥ {SETTINGS.INTRADAY_SCORE_THRESHOLD} today. No edge — sit out.")
         lines.append("")
         lines.append(f"<i>{_DISCLAIMER}</i>")
         return "\n".join(lines)
@@ -67,7 +67,7 @@ def build_alert(
 
 def write_watchlist(watchlist: list[dict], report_date: date) -> Path:
     """Persist watchlist as JSON + text under output/YYYY-MM-DD/. Returns json path."""
-    out_dir = Path(config.OUTPUT_DIR) / report_date.isoformat()
+    out_dir = Path(SETTINGS.OUTPUT_DIR) / report_date.isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = out_dir / "intraday_watchlist.json"

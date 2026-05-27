@@ -19,7 +19,7 @@ _cfg = types.SimpleNamespace(
     DEBATE_TOP_N=5,
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from agents.contracts import (  # noqa: E402
     EnrichedStock,
@@ -37,9 +37,9 @@ from agents.state import RunStatus  # noqa: E402
 @pytest.fixture(autouse=True)
 def _bind_config():
     """Bind the agent-layer modules to THIS file's config (order-independent)."""
-    _sup.config = _cfg
-    _base.config = _cfg
-    debate_mod.config = _cfg
+    _sup.SETTINGS = _cfg
+    _base.SETTINGS = _cfg
+    debate_mod.SETTINGS = _cfg
     yield
 
 

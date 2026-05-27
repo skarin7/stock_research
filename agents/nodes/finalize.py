@@ -11,7 +11,7 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-import config
+from config import SETTINGS
 
 from agents.nodes.base import agent_node
 from agents.state import AgentState, RunStatus, TERMINAL_STATUSES

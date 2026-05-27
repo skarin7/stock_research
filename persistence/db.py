@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger("persistence")
 
@@ -21,19 +21,19 @@ def _ensure_engine():
     global _engine, _Session
     if _engine is not None:
         return _engine
-    if not config.DATABASE_URL:
+    if not SETTINGS.DATABASE_URL:
         raise RuntimeError("DATABASE_URL not configured")
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    _engine = create_engine(config.DATABASE_URL, pool_pre_ping=True)
+    _engine = create_engine(SETTINGS.DATABASE_URL, pool_pre_ping=True)
     _Session = sessionmaker(bind=_engine)
     return _engine
 
 
 def init_db() -> bool:
     """Create app tables. Returns False if no DB configured."""
-    if not config.DATABASE_URL:
+    if not SETTINGS.DATABASE_URL:
         logger.info("DATABASE_URL unset — skipping DB init")
         return False
     from persistence.models import Base

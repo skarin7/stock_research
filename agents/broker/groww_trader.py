@@ -8,7 +8,7 @@ checks too):
     AND no kill-switch.
 
 In paper mode this module is never reached (the trading node simulates fills).
-Auth reuses the TOTP client from enrichment.groww_client.
+Auth reuses the TOTP client from enrichment.market_data.groww.
 
 NOTE: the exact growwapi place_order parameter names/constants should be
 verified against the installed SDK version before enabling live trading — this
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.supervisor import kill_switch_active
 
@@ -35,16 +35,16 @@ def _gate_check(mode: str) -> None:
         raise BrokerRefused("kill-switch active")
     if mode != "live":
         raise BrokerRefused(f"mode={mode!r} is not 'live'")
-    if not getattr(config, "ENABLE_LIVE_TRADING", False):
+    if not getattr(SETTINGS, "ENABLE_LIVE_TRADING", False):
         raise BrokerRefused("ENABLE_LIVE_TRADING is false")
-    if not getattr(config, "GROWW_TRADING_ENABLED", False):
+    if not getattr(SETTINGS, "GROWW_TRADING_ENABLED", False):
         raise BrokerRefused("GROWW_TRADING_ENABLED is false")
 
 
 def _trading_client():
     # Reuse the authenticated (TOTP) client; lazy so growwapi isn't needed elsewhere.
-    from enrichment.groww_client import _get_client
-    return _get_client()
+    from enrichment.market_data.groww import default_client
+    return default_client()
 
 
 def place_order(proposal, mode: str = "live") -> tuple[str, str]:

@@ -4,6 +4,7 @@ Run: python -m pytest tests/test_intraday.py -v
 """
 
 import sys
+import types
 import unittest.mock as mock
 from datetime import date
 from pathlib import Path
@@ -21,7 +22,7 @@ mock_config.INTRADAY_SCORE_THRESHOLD = 5
 mock_config.INTRADAY_HIGH_CONVICTION = 7
 mock_config.INTRADAY_TOP_N = 10
 mock_config.INTRADAY_HISTORY_DAYS = 90
-sys.modules["config"] = mock_config
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
 
 from intraday import signals, technicals, report, pipeline  # noqa: E402
 
