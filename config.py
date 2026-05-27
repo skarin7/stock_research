@@ -73,6 +73,16 @@ EARNINGS_PROXIMITY_DAYS = 5         # flag if within N trading days of results
 # --- Groww API base URL ---
 GROWW_BASE_URL = "https://api.groww.in/v1/market"
 
+# --- Intraday prediction system (run_intraday.py) ---
+# Evening scoring engine: scores the universe on S1–S10 / N1–N7 signals and
+# emits a next-day watchlist. Thresholds below are the only tunables; the
+# per-signal cut-offs (1.5x volume, RSI 55–68, etc.) are spec constants and
+# live in intraday/signals.py.
+INTRADAY_SCORE_THRESHOLD = int(os.environ.get("INTRADAY_SCORE_THRESHOLD", "5"))   # min score to make the watchlist
+INTRADAY_HIGH_CONVICTION = int(os.environ.get("INTRADAY_HIGH_CONVICTION", "7"))   # score ≥ this → HIGH CONVICTION
+INTRADAY_TOP_N = int(os.environ.get("INTRADAY_TOP_N", "10"))                      # cap on the watchlist size
+INTRADAY_HISTORY_DAYS = int(os.environ.get("INTRADAY_HISTORY_DAYS", "90"))        # OHLC lookback for RSI/20-day/3-day
+
 # --- Output directory ---
 OUTPUT_DIR = "output"
 

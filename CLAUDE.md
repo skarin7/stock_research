@@ -10,6 +10,8 @@ The project lives at the **repo root** — an NSE/BSE daily stock-scoring pipeli
 .
   main.py               # legacy pipeline orchestrator (7 stages) — still runnable
   run_agents.py         # multi-agent (LangGraph) entrypoint — parallel to main.py
+  run_intraday.py       # intraday next-day watchlist entrypoint — parallel to main.py
+  intraday/             # day-before signal scorer (S1–S10 / N1–N7) → watchlist
   config.py             # all settings loaded from .env
   scrapers/             # Stage 1–2: stock universe + NSE bhavcopy/bulk deals
   enrichment/           # Stage 3–4: Groww API (quotes/OHLC) + news + Gemini macro
@@ -87,6 +89,21 @@ Tests mock `config` entirely — no `.env` needed. Coverage: prompts, ranker, ba
 - **`MAX_STOCKS_TO_SCORE`** (default 100) caps the Groww/Claude expense: stocks are sorted by market cap and the tail is dropped before enrichment.
 - Claude models are `claude-haiku-4-5` (scoring) and `claude-sonnet-4-6` (narrative); both are in `config.py`.
 - **LLM provider switch** (`llm_router.py`): `config.LLM_PROVIDER` is `anthropic` (default) or `openrouter`. OpenRouter is OpenAI-compatible and hosts cheap reasoning models (DeepSeek/Qwen/Kimi); `OPENROUTER_SCORING_MODEL`/`OPENROUTER_REPORT_MODEL` pick the model. The scorer (`claude_scorer.py`) and narrative (`daily_report.py`) and the agent LLM factory (`agents/llm.py`) all route through it. Note: the **Anthropic Batch API (50% off) only applies to the anthropic provider** — OpenRouter uses one sync call per stock. Validate cheaper models against the backtest before trusting them for trades.
+
+## Intraday prediction system
+
+`run_intraday.py` is a third, standalone entrypoint (parallel to `main.py`/`run_agents.py`) implementing the **day-before next-day watchlist** strategy: run it in the evening after NSE close to score the universe on a fixed signal framework and push a ranked watchlist to Telegram. It does **not** call the LLM — it's a deterministic integer scorer.
+
+```bash
+python run_intraday.py [--date YYYY-MM-DD] [--dry-run] [--no-telegram]
+```
+
+- **`intraday/signals.py`** — pure `score_stock(ctx)` port of the spec's S1–S10 (bullish, +1..+3) and N1–N7 (risk reducers, −1..−2) rules. Each rule is guarded: a missing/None input contributes 0 points (an unavailable data source never crashes the run). Per-signal cut-offs (1.5x volume, RSI 55–68, etc.) are **spec constants in this file**, not config. `conviction(score)` maps to HIGH (≥7) / MODERATE (5–6) / LOW (3–4) / IGNORE.
+- **`intraday/technicals.py`** — pure indicator helpers over OHLCV candle lists (RSI(14) Wilder, prior-N-day high for breakout, N-day % change, N-day avg volume). No I/O — trivially testable.
+- **`intraday/data_sources.py`** — fetchers split by reliability. **Tier A (reliable):** yfinance OHLC history + Nifty move, 52-week high from NSE bhavcopy. **Tier B (best-effort, cookie-gated NSE web):** next-day board meetings, ASM/GSM list, per-stock PCR / Call-OI from the option chain — each returns empty/None on failure. **Tier C (S4 peer read-across, S7/N6 sector-wise FII, N7 legal) is NOT wired** — NSE doesn't publish sector-level FII for free, so those inputs stay None and contribute 0; the scorer keeps the branches so it stays a faithful 1:1 of the spec.
+- **`intraday/pipeline.py`** — `run_pipeline()` fetches bulk data once, loops per-stock (history + option chain), scores, filters ≥ `INTRADAY_SCORE_THRESHOLD` (5), sorts desc, caps at `INTRADAY_TOP_N` (10).
+- **`intraday/report.py`** — renders the spec's watchlist alert (HIGH/MODERATE bands) and writes `output/YYYY-MM-DD/intraday_watchlist.{json,txt}`. Telegram delivery via `notifications.telegram_notifier.send_intraday_watchlist`.
+- Tunables in `config.py`: `INTRADAY_SCORE_THRESHOLD`, `INTRADAY_HIGH_CONVICTION`, `INTRADAY_TOP_N`, `INTRADAY_HISTORY_DAYS`. Tests: `tests/test_intraday.py` (pure signals/technicals/report/pipeline, fully mocked).
 
 ## Multi-agent architecture & conventions
 

@@ -159,6 +159,36 @@ _LEGEND = """\
 <i>Scores are AI-generated (Claude Haiku). Not financial advice.</i>"""
 
 
+def send_intraday_watchlist(alert_text: str) -> bool:
+    """Send the intraday next-day watchlist alert (already HTML-formatted by
+    intraday/report.py). Returns True on success, False if Telegram is
+    unconfigured or the send fails."""
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        logger.info("Telegram not configured — skipping intraday watchlist")
+        return False
+
+    ok = True
+    # Split on blank lines if the alert exceeds Telegram's limit.
+    if len(alert_text) <= _MAX_MSG:
+        chunks = [alert_text]
+    else:
+        chunks, cur = [], ""
+        for block in alert_text.split("\n\n"):
+            if len(cur) + len(block) + 2 > _MAX_MSG and cur:
+                chunks.append(cur)
+                cur = block
+            else:
+                cur = f"{cur}\n\n{block}" if cur else block
+        if cur:
+            chunks.append(cur)
+
+    for chunk in chunks:
+        ok = _send_text(config.TELEGRAM_CHAT_ID, chunk) and ok
+    if ok:
+        logger.info("Intraday watchlist sent to Telegram")
+    return ok
+
+
 def send_report(
     top_stocks: list[dict],
     report_path: Path,
