@@ -45,9 +45,9 @@ def parse_args():
 
 
 def _toggle_kill(engage: bool) -> None:
-    import config
+    from config import SETTINGS
 
-    flag = Path(config.KILL_SWITCH_FILE)
+    flag = Path(SETTINGS.KILL_SWITCH_FILE)
     flag.parent.mkdir(parents=True, exist_ok=True)
     if engage:
         flag.write_text("engaged\n")
@@ -72,7 +72,7 @@ def main():
 
     if args.mode:
         os.environ["AGENT_MODE"] = args.mode
-    import config
+    from config import SETTINGS
 
     from agents.state import RunStatus
     from observability.metrics import start_metrics_server
@@ -82,12 +82,12 @@ def main():
 
     # Monitoring is a separate short, scheduled flow (market hours) — not the
     # full research→…→trade pipeline.
-    if config.AGENT_MODE == "monitor":
+    if SETTINGS.AGENT_MODE == "monitor":
         _monitor(run_id, report_date, RunStatus)
         return
 
     from agents.graph import build_graph
-    logger.info("=== Agent run %s | mode=%s dry_run=%s ===", run_id, config.AGENT_MODE, args.dry_run)
+    logger.info("=== Agent run %s | mode=%s dry_run=%s ===", run_id, SETTINGS.AGENT_MODE, args.dry_run)
 
     start_metrics_server()
 
@@ -95,14 +95,14 @@ def main():
     initial = {
         "run_id": run_id,
         "report_date": report_date.isoformat(),
-        "mode": config.AGENT_MODE,
+        "mode": SETTINGS.AGENT_MODE,
         "dry_run": args.dry_run,
         "status": RunStatus.RUNNING,
         "cost_usd": 0.0,
         "tokens": 0,
         "debate_rounds": 0,
     }
-    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": config.MAX_GRAPH_STEPS}
+    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": SETTINGS.MAX_GRAPH_STEPS}
 
     final = graph.invoke(initial, cfg)
 
@@ -115,7 +115,7 @@ def main():
         send_approval_request(payload)
         logger.warning("=== Run %s AWAITING APPROVAL — %d proposal(s) ===",
                        run_id, len(payload.get("proposals", [])))
-        if not config.DATABASE_URL:
+        if not SETTINGS.DATABASE_URL:
             logger.warning("DATABASE_URL unset: this suspended run is in-memory only and cannot be "
                            "resumed from a separate process. Set DATABASE_URL for live approvals.")
         print(f"\nAwaiting approval. Resume with:\n"
@@ -135,7 +135,7 @@ def main():
 
 
 def _monitor(run_id: str, report_date, RunStatus) -> None:
-    import config
+    from config import SETTINGS
 
     from agents.graph import build_monitor_graph
     from observability.metrics import start_metrics_server
@@ -145,7 +145,7 @@ def _monitor(run_id: str, report_date, RunStatus) -> None:
     graph = build_monitor_graph()
     initial = {"run_id": run_id, "report_date": report_date.isoformat(), "mode": "monitor",
                "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
-    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": config.MAX_GRAPH_STEPS}
+    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": SETTINGS.MAX_GRAPH_STEPS}
     final = graph.invoke(initial, cfg)
     from observability.metrics import push_metrics
     push_metrics(job="stock-intelligence-monitor")
@@ -155,7 +155,7 @@ def _monitor(run_id: str, report_date, RunStatus) -> None:
 
 
 def _resume(run_id: str, approve: list, reject: list) -> None:
-    import config  # noqa: F401  (ensures env loaded)
+    from config import SETTINGS
 
     from agents.approval import decisions_from_lists, resume_run
     from agents.state import RunStatus

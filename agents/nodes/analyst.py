@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.contracts import RankingResult, Scorecard
 from agents.nodes.base import agent_node

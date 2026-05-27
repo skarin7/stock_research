@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.contracts import ProposalStatus, RiskCheck, TradeProposal
 from agents.nodes.base import agent_node
@@ -32,9 +32,9 @@ def risk_node(state: AgentState) -> dict:
     stock_by = {s.symbol: s for s in (enriched.stocks if enriched else [])}
     book = state.get("book") or load_portfolio()
     held = {p.ticker for p in book.positions}
-    min_conv = float(getattr(config, "MIN_CONVICTION_TO_TRADE", 0.6))
-    block_earnings = bool(getattr(config, "BLOCK_NEAR_EARNINGS", True))
-    earnings_days = int(getattr(config, "EARNINGS_PROXIMITY_DAYS", 5))
+    min_conv = float(getattr(SETTINGS, "MIN_CONVICTION_TO_TRADE", 0.6))
+    block_earnings = bool(getattr(SETTINGS, "BLOCK_NEAR_EARNINGS", True))
+    earnings_days = int(getattr(SETTINGS, "EARNINGS_PROXIMITY_DAYS", 5))
 
     proposals: list[TradeProposal] = []
     for cv in convictions:

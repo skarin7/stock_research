@@ -28,7 +28,7 @@ _cfg = types.SimpleNamespace(
     POSITIONS_FILE="/tmp/__positions_test__.json",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from agents.contracts import (  # noqa: E402
     ConvictionView,
@@ -51,7 +51,7 @@ from persistence import store as store_mod  # noqa: E402
 def _bind_config(tmp_path):
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
     for mod in (_sup, _base, risk_mod, port_mod, trade_mod, store_mod):
-        mod.config = _cfg
+        mod.SETTINGS = _cfg
     yield
 
 

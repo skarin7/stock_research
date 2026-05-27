@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-import config
+from config import SETTINGS
 
 from agents.contracts import Position, ProposalStatus
 from agents.nodes.base import agent_node
@@ -52,7 +52,7 @@ def trading_node(state: AgentState) -> dict:
     book = state.get("book") or load_portfolio()
     enriched = state.get("enriched")
     stock_by = {s.symbol: s for s in (enriched.stocks if enriched else [])}
-    stop_pct = float(getattr(config, "STOP_LOSS_PCT", 0.05))
+    stop_pct = float(getattr(SETTINGS, "STOP_LOSS_PCT", 0.05))
 
     for p in approved:
         price = p.limit_price or 0.0
@@ -84,12 +84,12 @@ def _execute_live(state: AgentState, proposals: list, approved: list) -> dict:
     so it must be side-effect-idempotent (marking AWAITING + persisting an upsert
     both are). Order placement happens only AFTER the human decision returns.
     """
-    if not getattr(config, "ENABLE_LIVE_TRADING", False):
+    if not getattr(SETTINGS, "ENABLE_LIVE_TRADING", False):
         logger.warning("trading(live): ENABLE_LIVE_TRADING=false — default-deny, %d approved, no orders",
                        len(approved))
         return {}
 
-    timeout = int(getattr(config, "APPROVAL_TIMEOUT_SEC", 900))
+    timeout = int(getattr(SETTINGS, "APPROVAL_TIMEOUT_SEC", 900))
     expires_at = (_now() + timedelta(seconds=timeout)).isoformat()
     for p in approved:
         p.status = ProposalStatus.AWAITING_APPROVAL

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from agents.supervisor import kill_switch_active
 
@@ -35,9 +35,9 @@ def _gate_check(mode: str) -> None:
         raise BrokerRefused("kill-switch active")
     if mode != "live":
         raise BrokerRefused(f"mode={mode!r} is not 'live'")
-    if not getattr(config, "ENABLE_LIVE_TRADING", False):
+    if not getattr(SETTINGS, "ENABLE_LIVE_TRADING", False):
         raise BrokerRefused("ENABLE_LIVE_TRADING is false")
-    if not getattr(config, "GROWW_TRADING_ENABLED", False):
+    if not getattr(SETTINGS, "GROWW_TRADING_ENABLED", False):
         raise BrokerRefused("GROWW_TRADING_ENABLED is false")
 
 

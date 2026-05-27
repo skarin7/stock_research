@@ -22,7 +22,7 @@ _cfg = types.SimpleNamespace(
     TELEGRAM_CHAT_ID="",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from agents.contracts import PortfolioState, Position  # noqa: E402
 from agents.nodes import base as _base  # noqa: E402
@@ -37,7 +37,7 @@ def _bind(tmp_path, monkeypatch):
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
     _cfg.ENABLE_LIVE_TRADING = False
     for m in (_sup, _base, mon, store_mod):
-        m.config = _cfg
+        m.SETTINGS = _cfg
     monkeypatch.setattr(mon, "_notify", lambda alerts: None)   # never hit Telegram
     yield
 

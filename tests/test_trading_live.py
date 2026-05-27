@@ -27,7 +27,7 @@ _cfg = types.SimpleNamespace(
     PROPOSALS_FILE="/tmp/__prop__.json",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from agents.broker import groww_trader as broker_mod  # noqa: E402
 from agents.contracts import ProposalStatus, TradeProposal  # noqa: E402
@@ -45,7 +45,7 @@ def _bind_config(tmp_path):
     _cfg.KILL_SWITCH = False
     _cfg.APPROVAL_TIMEOUT_SEC = 900
     for mod in (_sup, _base, trade_mod, store_mod, broker_mod):
-        mod.config = _cfg
+        mod.SETTINGS = _cfg
     yield
 
 

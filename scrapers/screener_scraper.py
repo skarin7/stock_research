@@ -11,7 +11,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +76,8 @@ class ScreenerScraper:
 
         payload = {
             "csrfmiddlewaretoken": csrf,
-            "username": config.SCREENER_EMAIL,
-            "password": config.SCREENER_PASSWORD,
+            "username": SETTINGS.SCREENER_EMAIL,
+            "password": SETTINGS.SCREENER_PASSWORD,
         }
         resp = self.session.post(LOGIN_URL, data=payload, timeout=15)
         resp.raise_for_status()
@@ -120,8 +120,8 @@ class ScreenerScraper:
         Otherwise try slug-less URL; on 404 look up the slug from the saved screens list.
         """
         # Fast path: slug provided explicitly in config
-        if config.SCREENER_SCREEN_SLUG:
-            url = f"https://www.screener.in/screens/{screen_id}/{config.SCREENER_SCREEN_SLUG}/"
+        if SETTINGS.SCREENER_SCREEN_SLUG:
+            url = f"https://www.screener.in/screens/{screen_id}/{SETTINGS.SCREENER_SCREEN_SLUG}/"
             logger.info("Using explicit slug URL: %s", url)
             return url
 
@@ -252,10 +252,10 @@ class ScreenerScraper:
     def fetch_screen(self, screen_id: Optional[str] = None, max_pages: int = 10) -> list[dict]:
         """
         Fetch all pages of a Screener.in saved screen.
-        Returns a list of stock dicts passing the quantitative filters in config.
+        Returns a list of stock dicts passing the quantitative filters in SETTINGS.
         """
         self._ensure_authenticated()
-        sid = screen_id or config.SCREENER_SCREEN_ID
+        sid = screen_id or SETTINGS.SCREENER_SCREEN_ID
         all_rows: list[dict] = []
 
         for page in range(1, max_pages + 1):
@@ -275,8 +275,8 @@ class ScreenerScraper:
 
     @staticmethod
     def _apply_filters(stocks: list[dict]) -> list[dict]:
-        """Apply quantitative thresholds from config.SCREENER_FILTERS."""
-        f = config.SCREENER_FILTERS
+        """Apply quantitative thresholds from SETTINGS.SCREENER_FILTERS."""
+        f = SETTINGS.SCREENER_FILTERS
         result = []
         for s in stocks:
             if s["market_cap_cr"] and s["market_cap_cr"] < f["min_market_cap_cr"]:

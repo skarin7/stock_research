@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ _MAX_MSG = 4000  # Telegram limit is 4096; stay under for safety
 
 
 def _post(method: str, **kwargs) -> bool:
-    url = _API.format(token=config.TELEGRAM_BOT_TOKEN, method=method)
+    url = _API.format(token=SETTINGS.TELEGRAM_BOT_TOKEN, method=method)
     try:
         resp = requests.post(url, timeout=30, **kwargs)
         resp.raise_for_status()
@@ -163,7 +163,7 @@ def send_intraday_watchlist(alert_text: str) -> bool:
     """Send the intraday next-day watchlist alert (already HTML-formatted by
     intraday/report.py). Returns True on success, False if Telegram is
     unconfigured or the send fails."""
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+    if not SETTINGS.TELEGRAM_BOT_TOKEN or not SETTINGS.TELEGRAM_CHAT_ID:
         logger.info("Telegram not configured — skipping intraday watchlist")
         return False
 
@@ -183,7 +183,7 @@ def send_intraday_watchlist(alert_text: str) -> bool:
             chunks.append(cur)
 
     for chunk in chunks:
-        ok = _send_text(config.TELEGRAM_CHAT_ID, chunk) and ok
+        ok = _send_text(SETTINGS.TELEGRAM_CHAT_ID, chunk) and ok
     if ok:
         logger.info("Intraday watchlist sent to Telegram")
     return ok
@@ -201,11 +201,11 @@ def send_report(
       Message 2+: Stock cards (split if > 4000 chars)
     Returns True if the macro message sent successfully.
     """
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+    if not SETTINGS.TELEGRAM_BOT_TOKEN or not SETTINGS.TELEGRAM_CHAT_ID:
         logger.info("Telegram not configured — skipping notification")
         return False
 
-    chat_id = config.TELEGRAM_CHAT_ID
+    chat_id = SETTINGS.TELEGRAM_CHAT_ID
 
     # Message 1: macro context
     macro_msg = _build_macro_message(report_date, macro_context)

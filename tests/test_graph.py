@@ -33,7 +33,7 @@ _cfg = types.SimpleNamespace(
     METRICS_PORT=9100,
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
@@ -55,9 +55,9 @@ from agents.supervisor import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def _bind_config():
     """Bind the agent-layer modules to THIS file's config (order-independent)."""
-    _graph_mod.config = _cfg
-    _sup_mod.config = _cfg
-    _base_mod.config = _cfg
+    _graph_mod.SETTINGS = _cfg
+    _sup_mod.SETTINGS = _cfg
+    _base_mod.SETTINGS = _cfg
     yield
 
 

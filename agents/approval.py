@@ -16,14 +16,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger("agents.approval")
 
 
 def send_approval_request(payload: dict) -> bool:
     """Message the human the proposals awaiting approval. Returns True if sent."""
-    if not (getattr(config, "TELEGRAM_BOT_TOKEN", "") and getattr(config, "TELEGRAM_CHAT_ID", "")):
+    if not (getattr(SETTINGS, "TELEGRAM_BOT_TOKEN", "") and getattr(SETTINGS, "TELEGRAM_CHAT_ID", "")):
         logger.warning("approval: Telegram not configured — cannot send approval request")
         return False
     from notifications.telegram_notifier import _send_text
@@ -37,7 +37,7 @@ def send_approval_request(payload: dict) -> bool:
             f"  reject:  <code>/reject {p['proposal_id']}</code>"
         )
     lines.append("\nUnapproved proposals expire automatically.")
-    return _send_text(config.TELEGRAM_CHAT_ID, "\n".join(lines))
+    return _send_text(SETTINGS.TELEGRAM_CHAT_ID, "\n".join(lines))
 
 
 def decisions_from_lists(approve_ids, reject_ids) -> dict:
@@ -54,7 +54,7 @@ def resume_run(run_id: str, decisions: dict):
     from agents.graph import build_graph
 
     graph = build_graph()
-    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": getattr(config, "MAX_GRAPH_STEPS", 50)}
+    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": getattr(SETTINGS, "MAX_GRAPH_STEPS", 50)}
     logger.info("Resuming run %s with %d decisions", run_id, len(decisions))
     return graph.invoke(Command(resume=decisions), cfg)
 

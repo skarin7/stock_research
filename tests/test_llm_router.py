@@ -4,6 +4,7 @@ No network or API keys — the OpenRouter client is faked.
 """
 
 import sys
+import types
 import unittest.mock as mock
 from pathlib import Path
 
@@ -19,7 +20,7 @@ mock_config.OPENROUTER_REPORT_MODEL = "deepseek/deepseek-chat"
 mock_config.OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 mock_config.OPENROUTER_API_KEY = "or-key"
 mock_config.LLM_PROVIDER = "anthropic"
-sys.modules["config"] = mock_config
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
 
 import llm_router  # noqa: E402
 

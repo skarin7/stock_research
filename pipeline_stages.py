@@ -11,7 +11,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger("pipeline")
 
@@ -22,10 +22,10 @@ def load_universe(report_date: date, dry_run: bool) -> tuple[list[dict], int, di
     Returns (stocks, total_screened, skip_list, skip_list_path). Exits the
     process if the universe is empty.
     """
-    universe = config.STOCK_UNIVERSE.lower()
+    universe = SETTINGS.STOCK_UNIVERSE.lower()
     logger.info("STAGE 1: Stock universe fetch (source=%s)", universe)
 
-    skip_list_path = Path(config.OUTPUT_DIR) / "skip_list.json"
+    skip_list_path = Path(SETTINGS.OUTPUT_DIR) / "skip_list.json"
     skip_list_path.parent.mkdir(parents=True, exist_ok=True)
     skip_list: dict = {}
     if skip_list_path.exists():
@@ -51,16 +51,16 @@ def load_universe(report_date: date, dry_run: bool) -> tuple[list[dict], int, di
     logger.info("Stage 1 complete: %d stocks in universe", len(stocks))
     total_screened = len(stocks)
 
-    if len(stocks) > config.MAX_STOCKS_TO_SCORE:
+    if len(stocks) > SETTINGS.MAX_STOCKS_TO_SCORE:
         stocks = sorted(
             stocks,
             key=lambda s: float(s.get("market_cap_cr") or 0),
             reverse=True,
-        )[:config.MAX_STOCKS_TO_SCORE]
+        )[:SETTINGS.MAX_STOCKS_TO_SCORE]
         logger.info("Capped to top %d stocks by market cap (%d total passed screen)", len(stocks), total_screened)
 
     if dry_run:
-        stocks = stocks[:config.DRY_RUN_STOCK_COUNT]
+        stocks = stocks[:SETTINGS.DRY_RUN_STOCK_COUNT]
         logger.info("DRY RUN: limiting to %d stocks", len(stocks))
 
     if not stocks:

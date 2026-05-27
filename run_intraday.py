@@ -31,7 +31,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    import config  # noqa: F401  (loads .env)
+    from config import SETTINGS
 
     from intraday.pipeline import run_pipeline
     from intraday.report import build_alert, write_watchlist

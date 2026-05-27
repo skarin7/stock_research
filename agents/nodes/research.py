@@ -12,7 +12,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-import config
+from config import SETTINGS
 
 from agents.contracts import EnrichedStock, EnrichmentResult, UniverseResult
 from agents.nodes.base import agent_node
@@ -31,9 +31,9 @@ def _load_skip_list(skip_path: Path) -> dict:
 def research_node(state: AgentState) -> dict:
     report_date = date.fromisoformat(state["report_date"])
     dry_run = state.get("dry_run", False)
-    universe_src = config.STOCK_UNIVERSE.lower()
+    universe_src = SETTINGS.STOCK_UNIVERSE.lower()
 
-    skip_path = Path(config.OUTPUT_DIR) / "skip_list.json"
+    skip_path = Path(SETTINGS.OUTPUT_DIR) / "skip_list.json"
     skip_path.parent.mkdir(parents=True, exist_ok=True)
     skip_list = _load_skip_list(skip_path)
 
@@ -51,12 +51,12 @@ def research_node(state: AgentState) -> dict:
 
     total_screened = len(stocks)
 
-    if len(stocks) > config.MAX_STOCKS_TO_SCORE:
+    if len(stocks) > SETTINGS.MAX_STOCKS_TO_SCORE:
         stocks = sorted(stocks, key=lambda s: float(s.get("market_cap_cr") or 0), reverse=True)
-        stocks = stocks[:config.MAX_STOCKS_TO_SCORE]
+        stocks = stocks[:SETTINGS.MAX_STOCKS_TO_SCORE]
 
     if dry_run:
-        stocks = stocks[:config.DRY_RUN_STOCK_COUNT]
+        stocks = stocks[:SETTINGS.DRY_RUN_STOCK_COUNT]
 
     if not stocks:
         logger.error("No stocks in universe — failing research")

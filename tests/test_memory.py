@@ -18,7 +18,7 @@ _cfg = types.SimpleNamespace(
     MEMORY_FILE="/tmp/__mem_test__.jsonl",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = _cfg
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 from agents.contracts import ConvictionView, RankingResult, Scorecard  # noqa: E402
 from agents.nodes import base as _base  # noqa: E402
@@ -31,7 +31,7 @@ from persistence import store as store_mod  # noqa: E402
 def _bind(tmp_path, monkeypatch):
     _cfg.MEMORY_FILE = str(tmp_path / "memory.jsonl")
     for m in (_sup, _base, mem, store_mod):
-        m.config = _cfg
+        m.SETTINGS = _cfg
     monkeypatch.setattr(mem, "_regime_label", lambda: "bull")
     monkeypatch.setattr(mem, "_signal_performance", lambda: {"value": {"score_diff": 1.2}})
     yield

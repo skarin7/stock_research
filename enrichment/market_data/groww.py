@@ -20,7 +20,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 
-import config
+from config import SETTINGS
 
 from enrichment.market_data.provider import Candle, OptionSignals, Quote
 
@@ -49,18 +49,18 @@ def _segment() -> str:
 def _get_access_token() -> str:
     """Generate a fresh Groww access token. Prefers TOTP (no daily expiry)."""
     GrowwAPI = _sdk()
-    if config.GROWW_TOTP_TOKEN and config.GROWW_TOTP_SECRET:
+    if SETTINGS.GROWW_TOTP_TOKEN and SETTINGS.GROWW_TOTP_SECRET:
         try:
             import pyotp
-            totp = pyotp.TOTP(config.GROWW_TOTP_SECRET).now()
-            token = GrowwAPI.get_access_token(api_key=config.GROWW_TOTP_TOKEN, totp=totp)
+            totp = pyotp.TOTP(SETTINGS.GROWW_TOTP_SECRET).now()
+            token = GrowwAPI.get_access_token(api_key=SETTINGS.GROWW_TOTP_TOKEN, totp=totp)
             logger.info("Groww: authenticated via TOTP")
             return token
         except Exception as e:
             logger.warning("Groww TOTP auth failed: %s — trying legacy JWT", e)
-    if config.GROWW_API_KEY:
+    if SETTINGS.GROWW_API_KEY:
         logger.info("Groww: using legacy JWT token")
-        return config.GROWW_API_KEY
+        return SETTINGS.GROWW_API_KEY
     raise RuntimeError("No Groww credentials configured (set GROWW_TOTP_TOKEN/SECRET or GROWW_API_KEY)")
 
 
@@ -72,7 +72,7 @@ def default_client():
 
 
 def _delay() -> float:
-    return config.GROWW_RATE_LIMIT_DELAY_MS / 1000.0
+    return SETTINGS.GROWW_RATE_LIMIT_DELAY_MS / 1000.0
 
 
 def _safe_float(payload: dict, keys: list[str]) -> Optional[float]:

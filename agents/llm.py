@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-import config
+from config import SETTINGS
 import llm_router
 
 
 def get_chat_model(model: Optional[str] = None, max_tokens: int = 1024, temperature: float = 0.0):
     """Return a configured LangChain chat model with the Langfuse callback attached.
 
-    Provider-aware: ChatOpenAI pointed at OpenRouter when config.LLM_PROVIDER ==
+    Provider-aware: ChatOpenAI pointed at OpenRouter when SETTINGS.LLM_PROVIDER ==
     "openrouter", otherwise ChatAnthropic. ``model`` overrides the per-provider default.
     """
     from observability.langfuse_cb import get_callbacks
@@ -26,8 +26,8 @@ def get_chat_model(model: Optional[str] = None, max_tokens: int = 1024, temperat
 
         return ChatOpenAI(
             model=model or llm_router.scoring_model(),
-            api_key=config.OPENROUTER_API_KEY,
-            base_url=config.OPENROUTER_BASE_URL,
+            api_key=SETTINGS.OPENROUTER_API_KEY,
+            base_url=SETTINGS.OPENROUTER_BASE_URL,
             max_tokens=max_tokens,
             temperature=temperature,
             callbacks=get_callbacks(),
@@ -36,8 +36,8 @@ def get_chat_model(model: Optional[str] = None, max_tokens: int = 1024, temperat
     from langchain_anthropic import ChatAnthropic  # lazy
 
     return ChatAnthropic(
-        model=model or config.SCORING_MODEL,
-        api_key=config.ANTHROPIC_API_KEY,
+        model=model or SETTINGS.SCORING_MODEL,
+        api_key=SETTINGS.ANTHROPIC_API_KEY,
         max_tokens=max_tokens,
         temperature=temperature,
         callbacks=get_callbacks(),

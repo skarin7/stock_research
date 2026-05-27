@@ -10,12 +10,12 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
 NIFTY50_SYMBOL = "NIFTY50"  # Groww symbol for Nifty 50 index
-BACKTEST_LOG = Path(config.OUTPUT_DIR) / "backtest_log.json"
+BACKTEST_LOG = Path(SETTINGS.OUTPUT_DIR) / "backtest_log.json"
 
 # NSE holidays — extend this list annually or load from an external source
 _NSE_HOLIDAYS_2026 = {
@@ -75,7 +75,7 @@ def run_backtest(signal_date: date) -> Optional[dict]:
     Returns a backtest result dict, or None if no scores found.
     """
     date_str = signal_date.strftime("%Y-%m-%d")
-    scores_path = Path(config.OUTPUT_DIR) / date_str / "scores.json"
+    scores_path = Path(SETTINGS.OUTPUT_DIR) / date_str / "scores.json"
     all_scores = _load_scores(scores_path)
 
     if not all_scores:

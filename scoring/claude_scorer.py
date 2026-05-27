@@ -12,7 +12,7 @@ from typing import Optional
 
 import anthropic
 
-import config
+from config import SETTINGS
 import llm_router
 from scoring.prompts import SYSTEM_PROMPT, build_user_prompt
 
@@ -24,7 +24,7 @@ _client: Optional[anthropic.Anthropic] = None
 def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        _client = anthropic.Anthropic(api_key=SETTINGS.ANTHROPIC_API_KEY)
     return _client
 
 
@@ -43,7 +43,7 @@ def _build_batch_requests(stocks: list[dict], news_map: dict[str, dict], macro_c
         requests_list.append({
             "custom_id": safe_id,
             "params": {
-                "model": config.SCORING_MODEL,
+                "model": SETTINGS.SCORING_MODEL,
                 "max_tokens": 1024,
                 "system": SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_content}],
@@ -175,7 +175,7 @@ def _score_sync(stocks: list[dict], news_map: dict[str, dict], macro_context: st
         user_content = build_user_prompt(stock, headlines, macro_context, sector_macro)
         try:
             resp = client.messages.create(
-                model=config.SCORING_MODEL,
+                model=SETTINGS.SCORING_MODEL,
                 max_tokens=1024,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
@@ -196,7 +196,7 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
     Uses synchronous API for small sets (< _SYNC_THRESHOLD) for speed,
     and Batch API for large sets to save cost (50% cheaper).
 
-    When config.LLM_PROVIDER == "openrouter", all scoring is routed through
+    When SETTINGS.LLM_PROVIDER == "openrouter", all scoring is routed through
     OpenRouter (one sync call per stock — Batch API is Anthropic-only).
     """
     if llm_router.is_openrouter():
@@ -211,7 +211,7 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
         logger.info("Scoring complete: %d/%d stocks successfully scored", len(all_scores), len(stocks))
         return all_scores
 
-    batch_size = config.SCORING_BATCH_SIZE
+    batch_size = SETTINGS.SCORING_BATCH_SIZE
     all_scores: list[dict] = []
     batches = [stocks[i:i + batch_size] for i in range(0, len(stocks), batch_size)]
     logger.info("Scoring %d stocks via Batch API in %d batches", len(stocks), len(batches))

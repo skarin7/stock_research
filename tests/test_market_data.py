@@ -17,14 +17,15 @@ from enrichment.market_data.provider import Candle, MarketDataProvider  # noqa: 
 
 
 @pytest.fixture(autouse=True)
-def _cfg(monkeypatch):
-    """Other test modules install their own sys.modules['config']; ensure the
-    live config object always carries the fields the providers read at call time."""
-    import config
-    for k, v in {"OHLC_LOOKBACK_DAYS": 10, "GROWW_RATE_LIMIT_DELAY_MS": 0,
-                 "GROWW_TOTP_TOKEN": "", "GROWW_TOTP_SECRET": "",
-                 "GROWW_API_KEY": ""}.items():
-        monkeypatch.setattr(config, k, v, raising=False)
+def _settings(monkeypatch):
+    """Other test modules install their own sys.modules['config']; bind a clean
+    typed Settings onto the provider modules so they read valid values at call time."""
+    from settings import Settings
+    s = Settings(OHLC_LOOKBACK_DAYS=10, GROWW_RATE_LIMIT_DELAY_MS=0)
+    import enrichment.market_data.enrich as e
+    import enrichment.market_data.groww as g
+    monkeypatch.setattr(g, "SETTINGS", s)
+    monkeypatch.setattr(e, "SETTINGS", s)
 
 
 def test_candle_is_six_columns():

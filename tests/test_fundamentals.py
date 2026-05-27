@@ -5,6 +5,7 @@ Run: python -m pytest tests/test_fundamentals.py -v
 """
 
 import sys
+import types
 import unittest.mock as mock
 from datetime import date
 from pathlib import Path
@@ -14,12 +15,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Minimal config mock so modules importing `config` load without a real .env.
-if not isinstance(sys.modules.get("config"), mock.MagicMock):
-    _cfg = mock.MagicMock()
-    _cfg.ANTHROPIC_API_KEY = "test-key"
-    _cfg.GEMINI_API_KEY = ""  # falsy → macro fetch short-circuits
-    sys.modules["config"] = _cfg
+# Minimal settings stand-in so modules importing `config` load without a real .env.
+_settings = types.SimpleNamespace(ANTHROPIC_API_KEY="test-key", GEMINI_API_KEY="")
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=_settings)
+
+
+@pytest.fixture(autouse=True)
+def _bind_settings():
+    """news_fetcher reads SETTINGS.GEMINI_API_KEY at call time; bind this file's
+    stand-in regardless of collection order so the macro fetch short-circuits."""
+    import enrichment.news_fetcher as nf
+    nf.SETTINGS = _settings
+    yield
 
 
 # ── yfinance fundamentals ──────────────────────────────────────────────────────

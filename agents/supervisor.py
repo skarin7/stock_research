@@ -11,24 +11,24 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import config
+from config import SETTINGS
 
 from agents.state import TERMINAL_STATUSES, AgentState, RunStatus
 
 
 def kill_switch_active() -> bool:
     """True if the kill-switch flag file exists or KILL_SWITCH is set."""
-    if getattr(config, "KILL_SWITCH", False):
+    if getattr(SETTINGS, "KILL_SWITCH", False):
         return True
-    flag = getattr(config, "KILL_SWITCH_FILE", "")
+    flag = getattr(SETTINGS, "KILL_SWITCH_FILE", "")
     return bool(flag) and os.path.exists(flag)
 
 
 def budget_exceeded(state: AgentState) -> bool:
     cost = state.get("cost_usd", 0.0) or 0.0
     tokens = state.get("tokens", 0) or 0
-    return cost > getattr(config, "MAX_RUN_COST_USD", float("inf")) or tokens > getattr(
-        config, "MAX_RUN_TOKENS", float("inf")
+    return cost > getattr(SETTINGS, "MAX_RUN_COST_USD", float("inf")) or tokens > getattr(
+        SETTINGS, "MAX_RUN_TOKENS", float("inf")
     )
 
 
@@ -57,7 +57,7 @@ def route_after_research(state: AgentState) -> str:
 def route_after_analyst(state: AgentState) -> str:
     if is_terminal(state):
         return "finalize"
-    if getattr(config, "ENABLE_DEBATE_AGENT", False):
+    if getattr(SETTINGS, "ENABLE_DEBATE_AGENT", False):
         return "debate"
     return "finalize"
 

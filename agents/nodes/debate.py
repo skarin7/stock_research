@@ -20,7 +20,7 @@ import logging
 import operator
 from typing import Annotated, Any, Optional, TypedDict
 
-import config
+from config import SETTINGS
 
 from agents.contracts import ConvictionView, DebateTurn
 from agents.nodes.base import agent_node
@@ -172,8 +172,8 @@ def debate_node(state: AgentState) -> dict:
     stock_by_ticker = {s.symbol: s for s in (enriched.stocks if enriched else [])}
     macro = enriched.macro_context if enriched else ""
 
-    top_n = max(1, int(getattr(config, "DEBATE_TOP_N", 5)))
-    max_rounds = max(1, int(getattr(config, "MAX_DEBATE_ROUNDS", 3)))
+    top_n = max(1, int(getattr(SETTINGS, "DEBATE_TOP_N", 5)))
+    max_rounds = max(1, int(getattr(SETTINGS, "MAX_DEBATE_ROUNDS", 3)))
     candidates = ranking.top[:top_n]
 
     subgraph = build_debate_subgraph()

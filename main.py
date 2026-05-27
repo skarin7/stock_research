@@ -7,7 +7,7 @@ import argparse
 import logging
 from datetime import date
 
-import config
+from config import SETTINGS
 import pipeline_stages as stages
 
 logging.basicConfig(
@@ -21,7 +21,7 @@ logger = logging.getLogger("main")
 def parse_args():
     p = argparse.ArgumentParser(description="NSE/BSE Stock Intelligence Pipeline")
     p.add_argument("--dry-run", action="store_true",
-                   help=f"Run on {config.DRY_RUN_STOCK_COUNT} stocks only")
+                   help=f"Run on {SETTINGS.DRY_RUN_STOCK_COUNT} stocks only")
     p.add_argument("--date", help="Override trading date (YYYY-MM-DD); defaults to today")
     p.add_argument("--skip-backtest", action="store_true", help="Skip backtest calculation")
     p.add_argument("--skip-narrative", action="store_true", help="Skip Sonnet narrative (saves cost)")

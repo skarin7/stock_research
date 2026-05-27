@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-import config
+from config import SETTINGS
 
 from enrichment.market_data.provider import MarketDataProvider
 
@@ -17,7 +17,7 @@ def enrich_stocks(stocks: list[dict], provider: MarketDataProvider) -> list[dict
     Sets no_data=True when the provider returns neither candles nor a quote
     (likely delisted/suspended).
     """
-    lookback = config.OHLC_LOOKBACK_DAYS
+    lookback = SETTINGS.OHLC_LOOKBACK_DAYS
     enriched = []
     for i, stock in enumerate(stocks):
         sym = stock["symbol"]
