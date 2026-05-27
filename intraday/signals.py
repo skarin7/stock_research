@@ -17,6 +17,8 @@ The per-signal thresholds below are spec constants, not config knobs.
 
 from __future__ import annotations
 
+from intraday.types import SignalResult
+
 # ── Spec thresholds (do not move to config — they define the strategy) ────────
 VOLUME_SPIKE_MULT = 1.5        # S2: volume > 1.5x 20-day avg
 RSI_IDEAL_LOW, RSI_IDEAL_HIGH = 55, 68   # S5: ideal momentum zone
@@ -29,7 +31,7 @@ NIFTY_WEAK_PCT = -0.5          # N3: Nifty down > 0.5%
 LOW_VOLUME_MULT = 0.7          # N5: volume < 0.7x 20-day avg
 
 
-def score_stock(ctx: dict) -> dict:
+def score_stock(ctx: dict) -> SignalResult:
     """Apply S1–S10 and N1–N7 to a single stock context.
 
     Expected context keys (all optional — None means "data unavailable"):

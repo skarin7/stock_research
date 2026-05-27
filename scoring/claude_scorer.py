@@ -5,6 +5,7 @@ and returns a list of parsed score dicts.
 """
 
 import base64
+import functools
 import json
 import logging
 import time
@@ -18,14 +19,10 @@ from scoring.prompts import SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger(__name__)
 
-_client: Optional[anthropic.Anthropic] = None
 
-
+@functools.lru_cache(maxsize=1)
 def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=SETTINGS.ANTHROPIC_API_KEY)
-    return _client
+    return anthropic.Anthropic(api_key=SETTINGS.ANTHROPIC_API_KEY)
 
 
 def _build_batch_requests(stocks: list[dict], news_map: dict[str, dict], macro_context: str = "",

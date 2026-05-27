@@ -118,8 +118,8 @@ def main():
         if not SETTINGS.DATABASE_URL:
             logger.warning("DATABASE_URL unset: this suspended run is in-memory only and cannot be "
                            "resumed from a separate process. Set DATABASE_URL for live approvals.")
-        print(f"\nAwaiting approval. Resume with:\n"
-              f"  python run_agents.py --resume {run_id} --approve <proposal_id> [--reject <id>]")
+        logger.info("Awaiting approval. Resume with:\n"
+                    "  python run_agents.py --resume %s --approve <proposal_id> [--reject <id>]", run_id)
         return
 
     import observability.metrics as metrics
@@ -129,7 +129,7 @@ def main():
     status = final.get("status")
     logger.info("=== Run %s finished → %s ===", run_id, getattr(status, "value", status))
     if final.get("report_path"):
-        print(f"\nReport ready: {final['report_path']}")
+        logger.info("Report ready: %s", final["report_path"])
     if status not in (RunStatus.COMPLETED, RunStatus.AWAITING_APPROVAL):
         sys.exit(1)
 

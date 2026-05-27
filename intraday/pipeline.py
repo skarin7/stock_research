@@ -16,6 +16,7 @@ from typing import Optional
 from config import SETTINGS
 
 from . import data_sources, signals, technicals
+from .types import WatchlistItem
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _load_universe() -> list[dict]:
     return fetch_index_stocks(universe)
 
 
-def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> list[dict]:
+def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> list[WatchlistItem]:
     """Score the universe and return the ranked watchlist (score ≥ threshold)."""
     ref = report_date or date.today()
     stocks = _load_universe()

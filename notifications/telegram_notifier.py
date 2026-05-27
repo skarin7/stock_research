@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 _API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_MSG = 4000  # Telegram limit is 4096; stay under for safety
 
+BULLISH_SCORE_THRESHOLD = 7   # signal score ≥ this → green dot
+BEARISH_SCORE_THRESHOLD = 4   # signal score ≤ this → red dot
+TOP_STOCKS_DISPLAY = 10       # cap stock cards in the report
+MEDAL_COUNT = 3               # 🥇🥈🥉 for the top 3, numbered after
+
 
 def _post(method: str, **kwargs) -> bool:
     url = _API.format(token=SETTINGS.TELEGRAM_BOT_TOKEN, method=method)
@@ -47,9 +52,9 @@ def _send_text(chat_id: str, text: str) -> bool:
 
 def _sentiment_emoji(signals: dict, key: str) -> str:
     score = signals.get(key, {}).get("score", 5)
-    if score >= 7:
+    if score >= BULLISH_SCORE_THRESHOLD:
         return "🟢"
-    if score <= 4:
+    if score <= BEARISH_SCORE_THRESHOLD:
         return "🔴"
     return "🟡"
 
@@ -77,7 +82,7 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
     messages = []
     current = ["<b>🏆 Top Picks</b>", ""]
 
-    for i, s in enumerate(top_stocks[:10]):
+    for i, s in enumerate(top_stocks[:TOP_STOCKS_DISPLAY]):
         ticker    = s.get("ticker", "")
         score     = s.get("composite_score", 0)
         signals   = s.get("signals", {})
@@ -87,7 +92,7 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
         high52    = s.get("52w_high")
         low52     = s.get("52w_low")
 
-        medal = MEDALS[i] if i < 3 else f"{i + 1}."
+        medal = MEDALS[i] if i < MEDAL_COUNT else f"{i + 1}."
 
         # Header: medal + ticker + score (no block-char bar)
         card = [f"{medal} <b>{ticker}</b>  <b>{score:.1f}/10</b>"]
@@ -101,7 +106,8 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
             card.append(price_line)
 
         # Signal line — emoji BEFORE label so wraps stay clean
-        e = lambda k: _sentiment_emoji(signals, k)
+        def e(k: str) -> str:
+            return _sentiment_emoji(signals, k)
         card.append(
             f"{e('news_sentiment')}News · {e('momentum')}Mom · "
             f"{e('value')}Val · {e('bulk_deals')}Bulk"
