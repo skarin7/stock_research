@@ -12,19 +12,13 @@ from typing import Optional
 import pandas as pd
 import requests
 
+from scrapers.http_client import NSE_HEADERS, NSE_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 BHAVCOPY_URL = (
     "https://archives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
 )
-
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.nseindia.com/",
-}
 
 # Canonical column renames (NSE headers vary slightly across dates)
 _COLUMN_RENAMES = {
@@ -64,7 +58,7 @@ def download_bhavcopy(for_date: Optional[date] = None) -> pd.DataFrame:
     url = BHAVCOPY_URL.format(date_str=date_str)
 
     logger.info("Downloading NSE Bhavcopy: %s", url)
-    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp = requests.get(url, headers=NSE_HEADERS, timeout=NSE_TIMEOUT)
     if resp.status_code == 404:
         raise FileNotFoundError(
             f"NSE Bhavcopy not found for {date_str} — may be a holiday or weekend"

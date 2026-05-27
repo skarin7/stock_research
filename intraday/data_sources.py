@@ -18,17 +18,9 @@ from typing import Optional
 
 import requests
 
-logger = logging.getLogger(__name__)
+from scrapers.http_client import nse_session
 
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.nseindia.com/",
-}
+logger = logging.getLogger(__name__)
 
 _NSE_BASE = "https://www.nseindia.com"
 
@@ -84,8 +76,7 @@ def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
 
 def _nse_session() -> Optional[requests.Session]:
     """Prime an NSE session with cookies (NSE rejects API calls without them)."""
-    s = requests.Session()
-    s.headers.update(_BROWSER_HEADERS)
+    s = nse_session()
     try:
         s.get(_NSE_BASE, timeout=10)
         return s

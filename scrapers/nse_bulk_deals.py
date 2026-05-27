@@ -14,32 +14,25 @@ from typing import Optional
 import pandas as pd
 import requests
 
+from scrapers.http_client import NSE_SESSION_DELAY, NSE_TIMEOUT, nse_session
+
 logger = logging.getLogger(__name__)
 
 NSE_HOME = "https://www.nseindia.com"
 BULK_DEALS_REPORT_PAGE = "https://www.nseindia.com/report-detail/display-bulk-and-block-deals"
 BULK_DEALS_URL = "https://www.nseindia.com/api/historicalOR/bulk-block-short-deals"
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": BULK_DEALS_REPORT_PAGE,
-    "X-Requested-With": "XMLHttpRequest",
-}
-
 
 def _get_nse_session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(_HEADERS)
+    session = nse_session(extra_headers={
+        "Referer": BULK_DEALS_REPORT_PAGE,
+        "X-Requested-With": "XMLHttpRequest",
+    })
     # Seed cookies by visiting homepage then the report page
-    session.get(NSE_HOME, timeout=15)
-    time.sleep(1)
-    session.get(BULK_DEALS_REPORT_PAGE, timeout=15)
-    time.sleep(1)
+    session.get(NSE_HOME, timeout=NSE_TIMEOUT)
+    time.sleep(NSE_SESSION_DELAY)
+    session.get(BULK_DEALS_REPORT_PAGE, timeout=NSE_TIMEOUT)
+    time.sleep(NSE_SESSION_DELAY)
     return session
 
 
