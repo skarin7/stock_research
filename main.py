@@ -119,7 +119,7 @@ def main():
 
     # ── Stage 3: Groww API enrichment ────────────────────────────────────────
     logger.info("STAGE 3: Groww API enrichment (%d stocks)", len(stocks))
-    from enrichment.groww_client import enrich_stocks
+    from enrichment.market_data import enrich_stocks
     stocks = enrich_stocks(stocks)
 
     # Save stocks with no price data to skip list for future runs

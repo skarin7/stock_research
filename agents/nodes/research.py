@@ -89,7 +89,7 @@ def research_node(state: AgentState) -> dict:
         stock["bulk_deals"] = bulk_map.get(sym, [])
 
     # ── Stage 3: Groww enrichment + fundamentals ──────────────────────────────
-    from enrichment.groww_client import enrich_stocks
+    from enrichment.market_data import enrich_stocks
     stocks = enrich_stocks(stocks)
 
     no_data = [s["symbol"] for s in stocks if s.get("no_data")]

@@ -4,6 +4,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 sys.modules.setdefault("config", types.SimpleNamespace(
@@ -12,6 +14,17 @@ sys.modules.setdefault("config", types.SimpleNamespace(
 ))
 
 from enrichment.market_data.provider import Candle, MarketDataProvider  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _cfg(monkeypatch):
+    """Other test modules install their own sys.modules['config']; ensure the
+    live config object always carries the fields the providers read at call time."""
+    import config
+    for k, v in {"OHLC_LOOKBACK_DAYS": 10, "GROWW_RATE_LIMIT_DELAY_MS": 0,
+                 "GROWW_TOTP_TOKEN": "", "GROWW_TOTP_SECRET": "",
+                 "GROWW_API_KEY": ""}.items():
+        monkeypatch.setattr(config, k, v, raising=False)
 
 
 def test_candle_is_six_columns():

@@ -31,8 +31,8 @@ logger = logging.getLogger("agents.monitor")
 def _current_price(ticker: str):
     """Live price for a ticker (Groww quote → yfinance fallback). Monkeypatched in tests."""
     try:
-        from enrichment.groww_client import get_quote
-        q = get_quote(ticker)
+        from enrichment.market_data import get_default_provider
+        q = get_default_provider().get_quote(ticker)
         if q and q.get("ltp"):
             return float(q["ltp"])
     except Exception:

@@ -56,8 +56,8 @@ def _load_scores(scores_path: Path) -> list[dict]:
 def _fetch_close(symbol: str, target_date: date) -> Optional[float]:
     """Fetch closing price for a symbol on a given date via Groww API."""
     try:
-        from enrichment.groww_client import get_candles
-        candles = get_candles(symbol, lookback_days=10, to_date=target_date)
+        from enrichment.market_data import get_default_provider
+        candles = get_default_provider().get_ohlcv(symbol, days=10, to_date=target_date)
         # Find the candle matching target_date
         for c in reversed(candles):
             c_date = date.fromisoformat(c[0][:10])
