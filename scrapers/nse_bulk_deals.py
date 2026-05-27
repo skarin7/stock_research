@@ -69,7 +69,7 @@ def download_bulk_deals(for_date: Optional[date] = None) -> pd.DataFrame:
     # NSE returns {"data": [...]} or the list directly
     records = payload.get("data", payload) if isinstance(payload, dict) else payload
     if not records:
-        logger.info("No bulk deals found for %s", date_str)
+        logger.info("No bulk deals found for %s", to_date)
         return _empty
 
     df = pd.DataFrame(records)

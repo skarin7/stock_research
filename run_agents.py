@@ -37,9 +37,9 @@ def parse_args():
     p.add_argument("--unkill", action="store_true", help="Clear the kill-switch and exit")
     # Resume a run suspended at the trade-approval interrupt (needs DATABASE_URL).
     p.add_argument("--resume", metavar="RUN_ID", help="Resume a run awaiting trade approval")
-    p.add_argument("--approve", action="append", default=[], metavar="PROPOSAL_ID",
+    p.add_argument("--approve", action="append", default=None, metavar="PROPOSAL_ID",
                    help="Approve a proposal id (repeatable); used with --resume")
-    p.add_argument("--reject", action="append", default=[], metavar="PROPOSAL_ID",
+    p.add_argument("--reject", action="append", default=None, metavar="PROPOSAL_ID",
                    help="Reject a proposal id (repeatable); used with --resume")
     return p.parse_args()
 
@@ -67,7 +67,7 @@ def main():
         return
 
     if args.resume:
-        _resume(args.resume, args.approve, args.reject)
+        _resume(args.resume, args.approve or [], args.reject or [])
         return
 
     if args.mode:
