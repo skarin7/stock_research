@@ -1,10 +1,12 @@
 """Data fetchers for the intraday scorer.
 
-Tier A (reliable): OHLC history + Nifty move via yfinance, 52-week high via NSE
-bhavcopy. Tier B (best-effort, fragile NSE web endpoints behind a cookie wall):
-next-day board meetings, ASM/GSM surveillance list, per-stock PCR / Call-OI from
-the option chain. Every fetcher returns an empty/None result on failure and logs
-— a dead endpoint must never abort the run (the scorer treats missing data as a
+Reliable sources first: daily OHLCV and per-stock PCR / Call-OI come from the
+official Groww API (via enrichment.groww_client, which falls back to yfinance for
+history when Groww historical data isn't subscribed). 52-week high is derived
+from the candles. The only remaining fragile NSE-web scrapes are next-day board
+meetings (S1) and the ASM/GSM surveillance list (N4) — there is no Groww endpoint
+for those. Every fetcher returns an empty/None result on failure and logs — a
+dead endpoint must never abort the run (the scorer treats missing data as a
 0-point signal).
 """
 
@@ -31,39 +33,24 @@ _BROWSER_HEADERS = {
 _NSE_BASE = "https://www.nseindia.com"
 
 
-# ── Tier A: yfinance OHLC + Nifty ─────────────────────────────────────────────
+# ── Reliable: Groww OHLCV + option chain (yfinance fallback for history) ──────
 
-def fetch_history(symbol: str, days: int = 90, to_date: Optional[date] = None) -> list[list]:
-    """Daily OHLCV candles for an NSE ticker via yfinance.
+def fetch_history(symbol: str, days: int = 400, to_date: Optional[date] = None) -> list[list]:
+    """Daily OHLCV candles ``[[date_str, o, h, l, c, volume], ...]`` ascending.
 
-    Returns ``[[date_str, open, high, low, close, volume], ...]`` ascending.
-    Empty list on failure (so the scorer scores the stock on whatever else it has).
+    Delegates to the Groww client (official historical endpoint, yfinance
+    fallback). Defaults to ~400 days so the 52-week high is derivable from the
+    same candles. Empty list on failure.
     """
-    import yfinance as yf
+    from enrichment import groww_client
+    return groww_client.get_ohlcv(symbol, days=days, to_date=to_date)
 
-    end = to_date or date.today()
-    start = end - timedelta(days=days + 10)  # buffer for weekends/holidays
-    ticker = f"{symbol.upper()}.NS"
-    try:
-        df = yf.download(
-            ticker,
-            start=start.strftime("%Y-%m-%d"),
-            end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
-            progress=False, auto_adjust=True,
-        )
-        if df.empty:
-            return []
-        if hasattr(df.columns, "levels"):
-            df.columns = df.columns.get_level_values(0)
-        candles = [
-            [str(dt.date()), float(r["Open"]), float(r["High"]),
-             float(r["Low"]), float(r["Close"]), float(r["Volume"])]
-            for dt, r in df.iterrows()
-        ]
-        return sorted(candles, key=lambda c: c[0])
-    except Exception as e:
-        logger.warning("History fetch failed for %s: %s", symbol, e)
-        return []
+
+def option_chain_signals(symbol: str) -> dict:
+    """Per-stock PCR and unusual-Call-OI flag from the Groww option chain.
+    Returns ``{"pcr": float|None, "unusual_call_oi": bool}``."""
+    from enrichment import groww_client
+    return groww_client.get_option_chain_pcr(symbol)
 
 
 def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
@@ -93,21 +80,7 @@ def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
     return round((closes[-1] - closes[-2]) / closes[-2] * 100.0, 2)
 
 
-def fetch_52w_highs(for_date: Optional[date] = None) -> dict[str, float]:
-    """52-week high per symbol from the NSE bhavcopy (one bulk download).
-    Returns {} on failure."""
-    try:
-        from scrapers.nse_bhavcopy import download_bhavcopy
-        df = download_bhavcopy(for_date)
-        if "52w_high" not in df.columns:
-            return {}
-        return {sym: float(v) for sym, v in df["52w_high"].dropna().items()}
-    except Exception as e:
-        logger.warning("Bhavcopy 52w-high fetch failed: %s", e)
-        return {}
-
-
-# ── Tier B: NSE web endpoints (cookie-gated, best-effort) ─────────────────────
+# ── Fragile NSE web endpoints (cookie-gated, best-effort: S1 + N4 only) ───────
 
 def _nse_session() -> Optional[requests.Session]:
     """Prime an NSE session with cookies (NSE rejects API calls without them)."""
@@ -169,41 +142,3 @@ def asm_gsm_symbols() -> set[str]:
             logger.warning("ASM/GSM fetch failed (%s): %s", url, e)
     logger.info("ASM/GSM surveillance: %d symbols", len(out))
     return out
-
-
-def option_chain_signals(symbol: str, session: Optional[requests.Session] = None) -> dict:
-    """Per-stock PCR and unusual-Call-OI flag from the NSE equity option chain.
-
-    Returns {"pcr": float|None, "unusual_call_oi": bool}. PCR is total put OI /
-    total call OI. F&O stocks only — non-F&O symbols return {pcr: None,
-    unusual_call_oi: False}, which the scorer simply skips.
-    """
-    s = session or _nse_session()
-    if s is None:
-        return {"pcr": None, "unusual_call_oi": False}
-    url = f"{_NSE_BASE}/api/option-chain-equities"
-    try:
-        resp = s.get(url, params={"symbol": symbol.upper()}, timeout=10)
-        resp.raise_for_status()
-        records = resp.json().get("records", {})
-        data = records.get("data", [])
-        tot_call_oi = tot_put_oi = 0
-        call_oi_by_strike = []
-        for row in data:
-            ce, pe = row.get("CE"), row.get("PE")
-            if ce:
-                oi = ce.get("openInterest", 0) or 0
-                tot_call_oi += oi
-                call_oi_by_strike.append(oi)
-            if pe:
-                tot_put_oi += pe.get("openInterest", 0) or 0
-        pcr = round(tot_put_oi / tot_call_oi, 2) if tot_call_oi else None
-        # "Unusual" heuristic: the top-3 call strikes hold > 40% of all call OI.
-        unusual = False
-        if call_oi_by_strike and tot_call_oi:
-            top3 = sum(sorted(call_oi_by_strike, reverse=True)[:3])
-            unusual = top3 / tot_call_oi > 0.40
-        return {"pcr": pcr, "unusual_call_oi": unusual}
-    except Exception as e:
-        logger.warning("Option-chain fetch failed for %s: %s", symbol, e)
-        return {"pcr": None, "unusual_call_oi": False}

@@ -80,14 +80,16 @@ def compute_metrics(candles: list[Candle]) -> dict:
     """Derive the technical inputs the scorer needs from a candle list.
 
     Returns a dict with: close, volume_today, today_change_pct, change_3d_pct,
-    rsi14, high_20d, avg_volume_20d. Missing values are None when there is not
-    enough history (the scorer treats None as "signal unavailable").
+    rsi14, high_20d, avg_volume_20d, high_52w. Missing values are None when there
+    is not enough history (the scorer treats None as "signal unavailable").
+    high_52w is the max high across the supplied candles, so feeding ~1 year of
+    daily candles makes it a true 52-week high.
     """
     if not candles:
         return {
             "close": None, "volume_today": None, "today_change_pct": None,
             "change_3d_pct": None, "rsi14": None, "high_20d": None,
-            "avg_volume_20d": None,
+            "avg_volume_20d": None, "high_52w": None,
         }
 
     closes = _col(candles, _CLOSE)
@@ -102,4 +104,5 @@ def compute_metrics(candles: list[Candle]) -> dict:
         "rsi14": rsi(closes, 14),
         "high_20d": prior_high(highs, 20),
         "avg_volume_20d": avg_volume(volumes, 20),
+        "high_52w": max(highs),
     }

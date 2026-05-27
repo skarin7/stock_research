@@ -10,7 +10,7 @@ the same data for free for our backtesting / momentum signal needs.
 
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 import yfinance as yf
@@ -111,6 +111,115 @@ def get_candles(
     except Exception as e:
         logger.warning("Candle fetch failed for %s: %s", symbol, e)
         return []
+
+
+def get_ohlcv(
+    symbol: str,
+    days: int = 400,
+    to_date: Optional[date] = None,
+) -> list[list]:
+    """Daily OHLCV candles for an NSE ticker: ``[date_str, o, h, l, c, volume]``
+    ascending. Prefers Groww's official historical endpoint; falls back to
+    yfinance if Groww is unavailable (e.g. no historical-data subscription) or
+    returns nothing — so callers get reliable data when subscribed and still
+    work for free otherwise.
+
+    NOTE: the Groww daily-candle params/constant are unverified against the
+    installed SDK (mirrors the broker seam). The yfinance fallback guarantees
+    the function works today; verify the Groww path before relying on it.
+    """
+    end = to_date or date.today()
+    start = end - timedelta(days=days)
+
+    groww = _groww_ohlcv(symbol, start, end)
+    if groww:
+        return groww
+    return _yfinance_ohlcv(symbol, start, end)
+
+
+def _groww_ohlcv(symbol: str, start: date, end: date) -> list[list]:
+    try:
+        client = _get_client()
+        time.sleep(_DELAY)
+        # Daily interval; growwapi exposes named constants (e.g. CANDLE_INTERVAL_DAY).
+        interval = getattr(GrowwAPI, "CANDLE_INTERVAL_DAY", "1440")
+        resp = client.get_historical_candles(
+            exchange=_EXCHANGE,
+            segment=_SEGMENT,
+            groww_symbol=f"NSE-{symbol.upper()}",
+            start_time=start.strftime("%Y-%m-%d %H:%M:%S"),
+            end_time=end.strftime("%Y-%m-%d %H:%M:%S"),
+            candle_interval=interval,
+        )
+        rows = resp.get("candles") if isinstance(resp, dict) else None
+        if rows is None and isinstance(resp, dict):
+            rows = resp.get("data", {}).get("candles")
+        if not rows:
+            return []
+        candles = []
+        for r in rows:  # Groww candle: [epoch_seconds, open, high, low, close, volume]
+            ts = datetime.fromtimestamp(int(r[0])).date()
+            candles.append([str(ts), float(r[1]), float(r[2]),
+                            float(r[3]), float(r[4]), float(r[5])])
+        return sorted(candles, key=lambda c: c[0])
+    except Exception as e:
+        logger.warning("Groww historical candles failed for %s: %s — using yfinance", symbol, e)
+        return []
+
+
+def _yfinance_ohlcv(symbol: str, start: date, end: date) -> list[list]:
+    try:
+        df = yf.download(f"{symbol.upper()}.NS", start=start.strftime("%Y-%m-%d"),
+                         end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                         progress=False, auto_adjust=True)
+        if df.empty:
+            return []
+        if hasattr(df.columns, "levels"):
+            df.columns = df.columns.get_level_values(0)
+        return sorted(
+            [[str(dt.date()), float(r["Open"]), float(r["High"]),
+              float(r["Low"]), float(r["Close"]), float(r["Volume"])]
+             for dt, r in df.iterrows()],
+            key=lambda c: c[0],
+        )
+    except Exception as e:
+        logger.warning("yfinance OHLCV failed for %s: %s", symbol, e)
+        return []
+
+
+def get_option_chain_pcr(symbol: str) -> dict:
+    """Put-Call Ratio and an unusual-Call-OI flag from the Groww option chain.
+
+    Returns ``{"pcr": float|None, "unusual_call_oi": bool}``. PCR is total put OI
+    / total call OI across strikes. Non-F&O symbols (or no F&O data access)
+    return ``{pcr: None, unusual_call_oi: False}`` and the scorer skips S8/S9.
+    """
+    time.sleep(_DELAY)
+    try:
+        client = _get_client()
+        resp = client.get_option_chain(trading_symbol=symbol.upper(), exchange=_EXCHANGE)
+        payload = resp.get("data", resp) if isinstance(resp, dict) else {}
+        chain = payload.get("option_chain") or payload.get("optionChain") or payload.get("chains") or []
+        tot_call_oi = tot_put_oi = 0.0
+        call_oi_by_strike = []
+        for row in chain:
+            ce = row.get("call") or row.get("CE") or {}
+            pe = row.get("put") or row.get("PE") or {}
+            c_oi = _safe_float(ce, ["open_interest", "openInterest", "oi"]) or 0.0
+            p_oi = _safe_float(pe, ["open_interest", "openInterest", "oi"]) or 0.0
+            tot_call_oi += c_oi
+            tot_put_oi += p_oi
+            if c_oi:
+                call_oi_by_strike.append(c_oi)
+        pcr = round(tot_put_oi / tot_call_oi, 2) if tot_call_oi else None
+        unusual = False
+        if call_oi_by_strike and tot_call_oi:
+            top3 = sum(sorted(call_oi_by_strike, reverse=True)[:3])
+            unusual = top3 / tot_call_oi > 0.40
+        return {"pcr": pcr, "unusual_call_oi": unusual}
+    except Exception as e:
+        logger.warning("Groww option chain failed for %s: %s", symbol, e)
+        return {"pcr": None, "unusual_call_oi": False}
 
 
 def get_quote(symbol: str) -> dict:

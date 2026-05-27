@@ -72,6 +72,13 @@ class TestTechnicals:
         m = technicals.compute_metrics([])
         assert all(v is None for v in m.values())
 
+    def test_compute_metrics_52w_high(self):
+        # high_52w is the max high across all supplied candles.
+        candles = [_candle("2026-01-01", 100, h=150)] + \
+                  [_candle(f"2026-02-{i:02d}", 110, h=120) for i in range(1, 25)]
+        m = technicals.compute_metrics(candles)
+        assert m["high_52w"] == 150
+
 
 # ── signals ─────────────────────────────────────────────────────────────────
 
@@ -188,10 +195,8 @@ class TestPipeline:
                             lambda d: {"HIGH1"})  # +3
         monkeypatch.setattr(pipeline.data_sources, "asm_gsm_symbols", lambda: set())
         monkeypatch.setattr(pipeline.data_sources, "nifty_change_pct", lambda d: 0.2)
-        monkeypatch.setattr(pipeline.data_sources, "fetch_52w_highs", lambda d: {})
-        monkeypatch.setattr(pipeline.data_sources, "_nse_session", lambda: None)
         monkeypatch.setattr(pipeline.data_sources, "option_chain_signals",
-                            lambda s, session=None: {"pcr": None, "unusual_call_oi": False})
+                            lambda s: {"pcr": None, "unusual_call_oi": False})
 
         def fake_history(sym, days, to_date):
             # HIGH1: flat history then a modest breakout bar on a volume spike.
@@ -217,10 +222,8 @@ class TestPipeline:
         monkeypatch.setattr(pipeline.data_sources, "board_meetings_tomorrow", lambda d: set())
         monkeypatch.setattr(pipeline.data_sources, "asm_gsm_symbols", lambda: set())
         monkeypatch.setattr(pipeline.data_sources, "nifty_change_pct", lambda d: 0.0)
-        monkeypatch.setattr(pipeline.data_sources, "fetch_52w_highs", lambda d: {})
-        monkeypatch.setattr(pipeline.data_sources, "_nse_session", lambda: None)
         monkeypatch.setattr(pipeline.data_sources, "option_chain_signals",
-                            lambda s, session=None: {"pcr": None, "unusual_call_oi": False})
+                            lambda s: {"pcr": None, "unusual_call_oi": False})
         seen = []
         def fake_history(sym, days, to_date):
             seen.append(sym)

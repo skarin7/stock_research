@@ -44,8 +44,6 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
     board_syms = data_sources.board_meetings_tomorrow(ref)
     asm_gsm = data_sources.asm_gsm_symbols()
     nifty_chg = data_sources.nifty_change_pct(ref)
-    highs_52w = data_sources.fetch_52w_highs(ref)
-    nse = data_sources._nse_session()
 
     scored: list[dict] = []
     for i, stock in enumerate(stocks):
@@ -54,7 +52,7 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
 
         candles = data_sources.fetch_history(sym, days=config.INTRADAY_HISTORY_DAYS, to_date=ref)
         metrics = technicals.compute_metrics(candles)
-        oi = data_sources.option_chain_signals(sym, session=nse)
+        oi = data_sources.option_chain_signals(sym)
 
         ctx = {
             "symbol": sym,
@@ -67,7 +65,7 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
             "high_20d": metrics["high_20d"],
             "volume_today": metrics["volume_today"],
             "avg_volume_20d": metrics["avg_volume_20d"],
-            "high_52w": highs_52w.get(sym),
+            "high_52w": metrics["high_52w"],
             "nifty_change_pct": nifty_chg,
             # Tier B — best-effort NSE web
             "has_board_meeting_tomorrow": sym in board_syms,

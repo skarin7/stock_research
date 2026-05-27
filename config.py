@@ -81,7 +81,7 @@ GROWW_BASE_URL = "https://api.groww.in/v1/market"
 INTRADAY_SCORE_THRESHOLD = int(os.environ.get("INTRADAY_SCORE_THRESHOLD", "5"))   # min score to make the watchlist
 INTRADAY_HIGH_CONVICTION = int(os.environ.get("INTRADAY_HIGH_CONVICTION", "7"))   # score ≥ this → HIGH CONVICTION
 INTRADAY_TOP_N = int(os.environ.get("INTRADAY_TOP_N", "10"))                      # cap on the watchlist size
-INTRADAY_HISTORY_DAYS = int(os.environ.get("INTRADAY_HISTORY_DAYS", "90"))        # OHLC lookback for RSI/20-day/3-day
+INTRADAY_HISTORY_DAYS = int(os.environ.get("INTRADAY_HISTORY_DAYS", "400"))       # OHLC lookback (~1y so 52-week high is derivable)
 
 # --- Output directory ---
 OUTPUT_DIR = "output"
