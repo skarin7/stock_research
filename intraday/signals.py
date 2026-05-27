@@ -3,8 +3,14 @@
 ``score_stock`` is pure: it takes a context dict of pre-computed inputs and
 returns ``{symbol, score, reasons}``. Every rule is guarded so a missing input
 (None / absent key) contributes 0 points rather than crashing — that is how an
-unavailable data source (dead NSE endpoint, non-F&O stock with no PCR, a Tier-C
-signal that isn't wired yet) degrades gracefully.
+unavailable data source (dead NSE endpoint, non-F&O stock with no PCR) degrades
+gracefully.
+
+Implements the signals the pipeline can actually feed (Tier A technicals + Tier
+B NSE web): S1–S3, S5, S6, S8–S10 bullish and N1–N5 risk reducers. The spec's
+S4 (sector peer read-across), S7/N6 (sector-wise FII — not published free) and
+N7 (legal) are omitted until a data source exists, rather than carried as branches
+that can never fire.
 
 The per-signal thresholds below are spec constants, not config knobs.
 """
@@ -28,9 +34,8 @@ def score_stock(ctx: dict) -> dict:
 
     Expected context keys (all optional — None means "data unavailable"):
       has_board_meeting_tomorrow, volume_today, avg_volume_20d, close, high_20d,
-      sector_peer_strong_result, rsi14, high_52w, fii_net_buyer_sector, pcr,
-      unusual_call_oi, change_3d_pct, today_change_pct, in_asm_gsm,
-      nifty_change_pct, fii_net_seller_sector, has_legal_issue.
+      rsi14, high_52w, pcr, unusual_call_oi, change_3d_pct, today_change_pct,
+      in_asm_gsm, nifty_change_pct.
     """
     score = 0
     reasons: list[str] = []
@@ -56,9 +61,6 @@ def score_stock(ctx: dict) -> dict:
     if close is not None and high_20d is not None and close > high_20d:
         add(2, "20-day breakout")
 
-    if g("sector_peer_strong_result"):
-        add(2, "Sector peer reported strong result today")
-
     rsi = g("rsi14")
     if rsi is not None and RSI_IDEAL_LOW <= rsi <= RSI_IDEAL_HIGH:
         add(1, f"RSI {rsi:.0f} in ideal zone (55–68)")
@@ -67,9 +69,6 @@ def score_stock(ctx: dict) -> dict:
     if close is not None and high_52w:
         if close >= NEAR_52W_HIGH_PCT * high_52w:
             add(1, "Within 5% of 52-week high")
-
-    if g("fii_net_buyer_sector"):
-        add(1, "FII net buyers in sector")
 
     pcr = g("pcr")
     if pcr is not None and pcr > PCR_BULLISH:
@@ -100,12 +99,6 @@ def score_stock(ctx: dict) -> dict:
     if vol is not None and avg_vol:
         if vol < LOW_VOLUME_MULT * avg_vol:
             add(-1, "Low volume day")
-
-    if g("fii_net_seller_sector"):
-        add(-1, "FII net sellers in sector")
-
-    if g("has_legal_issue"):
-        add(-1, "Pending regulatory/legal issue")
 
     return {"symbol": ctx.get("symbol", ""), "score": score, "reasons": reasons}
 

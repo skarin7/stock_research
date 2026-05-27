@@ -38,7 +38,7 @@ def build_alert(
     lines.append("")
 
     if not watchlist:
-        lines.append("No stocks scored ≥ %d today. No edge — sit out." % config.INTRADAY_SCORE_THRESHOLD)
+        lines.append(f"No stocks scored ≥ {config.INTRADAY_SCORE_THRESHOLD} today. No edge — sit out.")
         lines.append("")
         lines.append(f"<i>{_DISCLAIMER}</i>")
         return "\n".join(lines)

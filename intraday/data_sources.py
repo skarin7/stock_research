@@ -67,23 +67,27 @@ def fetch_history(symbol: str, days: int = 90, to_date: Optional[date] = None) -
 
 
 def nifty_change_pct(to_date: Optional[date] = None) -> Optional[float]:
-    """Nifty 50 (^NSEI) percent change on the latest session. None on failure."""
-    candles = fetch_history("^NSEI", days=10, to_date=to_date)
-    # ^NSEI is an index, not an .NS equity — fetch directly.
-    if not candles:
-        import yfinance as yf
-        try:
-            df = yf.download("^NSEI", period="5d", progress=False, auto_adjust=True)
-            if df.empty:
-                return None
-            if hasattr(df.columns, "levels"):
-                df.columns = df.columns.get_level_values(0)
-            closes = [float(c) for c in df["Close"].tolist()]
-        except Exception as e:
-            logger.warning("Nifty fetch failed: %s", e)
+    """Nifty 50 (^NSEI) percent change on the latest session. None on failure.
+
+    ^NSEI is an index ticker (no .NS suffix), so it's fetched directly rather
+    than through fetch_history."""
+    import yfinance as yf
+
+    end = to_date or date.today()
+    start = end - timedelta(days=10)  # buffer for weekends/holidays
+    try:
+        df = yf.download("^NSEI", start=start.strftime("%Y-%m-%d"),
+                         end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                         progress=False, auto_adjust=True)
+        if df.empty:
             return None
-    else:
-        closes = [c[4] for c in candles]
+        if hasattr(df.columns, "levels"):
+            df.columns = df.columns.get_level_values(0)
+        closes = [float(c) for c in df["Close"].tolist()]
+    except Exception as e:
+        logger.warning("Nifty fetch failed: %s", e)
+        return None
+
     if len(closes) < 2 or closes[-2] == 0:
         return None
     return round((closes[-1] - closes[-2]) / closes[-2] * 100.0, 2)

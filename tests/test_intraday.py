@@ -122,17 +122,17 @@ class TestSignals:
         assert r["score"] == 0 and r["reasons"] == []
 
     def test_combined_high_conviction(self):
-        # Board meeting + volume spike + breakout + RSI ideal + sector peer = 9
+        # Board meeting + volume spike + breakout + RSI ideal + within-5%-52w = 9
         ctx = {
             "symbol": "FINPIPE",
             "has_board_meeting_tomorrow": True,
             "volume_today": 210, "avg_volume_20d": 100,
             "close": 178, "high_20d": 170, "high_52w": 180,
             "rsi14": 61,
-            "sector_peer_strong_result": True,
+            "pcr": 1.3,
         }
         r = signals.score_stock(ctx)
-        assert r["score"] == 3 + 2 + 2 + 1 + 1 + 2  # +52w high too
+        assert r["score"] == 3 + 2 + 2 + 1 + 1 + 1  # board, vol, breakout, rsi, 52w, pcr
         assert signals.conviction(r["score"], 7) == "HIGH"
 
     def test_conviction_bands(self):

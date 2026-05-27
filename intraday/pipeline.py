@@ -74,11 +74,6 @@ def run_pipeline(report_date: Optional[date] = None, dry_run: bool = False) -> l
             "in_asm_gsm": sym in asm_gsm,
             "pcr": oi["pcr"],
             "unusual_call_oi": oi["unusual_call_oi"],
-            # Tier C — not wired (sector FII, peer read-across, legal) → None/skip
-            "sector_peer_strong_result": None,
-            "fii_net_buyer_sector": None,
-            "fii_net_seller_sector": None,
-            "has_legal_issue": None,
         }
 
         result = signals.score_stock(ctx)
