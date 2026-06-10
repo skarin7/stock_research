@@ -111,6 +111,14 @@ class Settings:
     APPROVAL_TIMEOUT_SEC: int = 900
     APPROVAL_CHANNEL: str = "telegram"
 
+    # --- Conversational chat agent (Telegram webhook) ---
+    ENABLE_CHAT_AGENT: bool = False
+    CHAT_MODEL: str = ""                 # empty → falls back to REPORT_MODEL
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    MAX_CHAT_TOOL_CALLS: int = 8
+    MAX_CHAT_TURN_COST_USD: float = 0.25
+    SNAPSHOT_STALE_DAYS: int = 3
+
     # --- Cost / iteration guardrails ---
     MAX_DEBATE_ROUNDS: int = 3
     DEBATE_TOP_N: int = 5
@@ -185,6 +193,12 @@ class Settings:
             KILL_SWITCH_FILE=os.path.join(output_dir, "kill_switch.flag"),
             APPROVAL_TIMEOUT_SEC=int(os.environ.get("APPROVAL_TIMEOUT_SEC", "900")),
             APPROVAL_CHANNEL=os.environ.get("APPROVAL_CHANNEL", "telegram"),
+            ENABLE_CHAT_AGENT=_flag("ENABLE_CHAT_AGENT", "false"),
+            CHAT_MODEL=os.environ.get("CHAT_MODEL", ""),
+            TELEGRAM_WEBHOOK_SECRET=os.environ.get("TELEGRAM_WEBHOOK_SECRET", ""),
+            MAX_CHAT_TOOL_CALLS=int(os.environ.get("MAX_CHAT_TOOL_CALLS", "8")),
+            MAX_CHAT_TURN_COST_USD=float(os.environ.get("MAX_CHAT_TURN_COST_USD", "0.25")),
+            SNAPSHOT_STALE_DAYS=int(os.environ.get("SNAPSHOT_STALE_DAYS", "3")),
             MAX_DEBATE_ROUNDS=int(os.environ.get("MAX_DEBATE_ROUNDS", "3")),
             DEBATE_TOP_N=int(os.environ.get("DEBATE_TOP_N", "5")),
             MAX_GRAPH_STEPS=int(os.environ.get("MAX_GRAPH_STEPS", "50")),

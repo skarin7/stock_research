@@ -63,6 +63,105 @@ def load_proposals() -> dict:
     return {}
 
 
+# ── daily snapshot (chat agent's screen cache) ─────────────────────────────────
+#
+# The daily run writes one row per enriched + scored stock. The chat agent's
+# screen_snapshot tool filters the latest snapshot instead of re-running the
+# pipeline. DB-backed when DATABASE_URL is set; output/<date>/snapshot.json is
+# always written and doubles as the no-DB fallback.
+
+_SNAPSHOT_FIELDS = (
+    "symbol", "company", "sector", "pe_ratio", "sector_pe", "market_cap_cr",
+    "ltp", "delivery_pct", "volume_ratio", "week52_high", "week52_low",
+)
+
+
+def build_snapshot_rows(stocks: list[dict], scorecards: list[dict], news_map: dict) -> list[dict]:
+    """Join enriched stock dicts with their scorecards + headlines by symbol."""
+    cards = {c.get("ticker"): c for c in scorecards}
+    rows = []
+    for s in stocks:
+        sym = s.get("symbol")
+        if not sym:
+            continue
+        card = cards.get(sym, {})
+        row = {k: s.get(k) for k in _SNAPSHOT_FIELDS}
+        row["week52_high"] = s.get("52w_high", row.get("week52_high"))
+        row["week52_low"] = s.get("52w_low", row.get("week52_low"))
+        row.update(
+            composite_score=card.get("composite_score"),
+            signals=card.get("signals"),
+            news=(news_map.get(sym) or {}).get("headlines", []),
+            rationale=card.get("investment_rationale", ""),
+            risk_flags=card.get("risk_flags", []),
+            earnings_proximity=bool(card.get("earnings_proximity", False)),
+        )
+        rows.append(row)
+    return rows
+
+
+def _snapshot_file(run_date: str) -> Path:
+    return Path(getattr(SETTINGS, "OUTPUT_DIR", "output")) / run_date / "snapshot.json"
+
+
+def save_daily_snapshot(run_date: str, rows: list[dict]) -> None:
+    """Persist the day's snapshot: always to file, plus DB upsert when configured."""
+    p = _snapshot_file(run_date)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"run_date": run_date, "stocks": rows}, indent=2, default=str))
+    logger.info("snapshot saved → %s (%d stocks)", p, len(rows))
+
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return
+    from persistence.db import session_scope
+    from persistence.models import DailySnapshotRow
+
+    with session_scope() as s:
+        s.query(DailySnapshotRow).filter(DailySnapshotRow.run_date == run_date).delete()
+        for row in rows:
+            s.add(DailySnapshotRow(
+                run_date=run_date,
+                earnings_proximity=int(bool(row.get("earnings_proximity"))),
+                **{k: row.get(k) for k in (*_SNAPSHOT_FIELDS, "composite_score",
+                                           "signals", "news", "rationale", "risk_flags")},
+            ))
+    logger.info("snapshot upserted to DB for %s", run_date)
+
+
+def load_latest_snapshot() -> tuple[str | None, list[dict]]:
+    """Latest snapshot as (run_date, rows). DB first, file fallback, ([], None) if none."""
+    if getattr(SETTINGS, "DATABASE_URL", ""):
+        try:
+            from sqlalchemy import func
+
+            from persistence.db import session_scope
+            from persistence.models import DailySnapshotRow
+
+            with session_scope() as s:
+                latest = s.query(func.max(DailySnapshotRow.run_date)).scalar()
+                if latest:
+                    rows = s.query(DailySnapshotRow).filter(DailySnapshotRow.run_date == latest).all()
+                    keep = (*_SNAPSHOT_FIELDS, "composite_score", "signals", "news",
+                            "rationale", "risk_flags")
+                    return latest, [
+                        {**{k: getattr(r, k) for k in keep},
+                         "earnings_proximity": bool(r.earnings_proximity)}
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.warning("DB snapshot load failed (%s) — trying files", e)
+
+    out = Path(getattr(SETTINGS, "OUTPUT_DIR", "output"))
+    candidates = sorted(out.glob("*/snapshot.json"), key=lambda p: p.parent.name)
+    for p in reversed(candidates):
+        try:
+            data = json.loads(p.read_text())
+            return data.get("run_date", p.parent.name), data.get("stocks", [])
+        except Exception as e:
+            logger.warning("could not read %s: %s", p, e)
+    return None, []
+
+
 # ── long-term memory (append-only jsonl; query by namespace) ───────────────────
 
 def record_memory(namespace: str, key: str, value: dict) -> None:

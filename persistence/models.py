@@ -90,6 +90,32 @@ class AgentAudit(Base):
     ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class DailySnapshotRow(Base):
+    """One enriched + scored stock from a daily run — the chat agent's screen cache."""
+
+    __tablename__ = "daily_snapshot"
+
+    run_date: Mapped[str] = mapped_column(String, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String, primary_key=True)
+    company: Mapped[str] = mapped_column(String, default="")
+    sector: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    pe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sector_pe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    market_cap_cr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ltp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    volume_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    week52_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    week52_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    composite_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    signals: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    news: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    risk_flags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    earnings_proximity: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MemoryRow(Base):
     __tablename__ = "memory"
 

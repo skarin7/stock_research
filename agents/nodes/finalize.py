@@ -64,6 +64,19 @@ def finalize_node(state: AgentState) -> dict:
     )
 
     try:
+        from persistence import store
+
+        enriched = state.get("enriched")
+        rows = store.build_snapshot_rows(
+            enriched.legacy_stocks() if enriched else [],
+            ranking.legacy_all(),
+            enriched.news_map if enriched else {},
+        )
+        store.save_daily_snapshot(state["report_date"], rows)
+    except Exception as e:
+        logger.warning("Snapshot save failed: %s", e)
+
+    try:
         from notifications.telegram_notifier import send_report
 
         send_report(
