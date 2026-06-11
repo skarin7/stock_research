@@ -12,6 +12,7 @@ _cfg = types.SimpleNamespace(
     ANTHROPIC_API_KEY="test",
     LLM_PROVIDER="anthropic",
     REPORT_MODEL="claude-sonnet-4-6",
+    SCORING_MODEL="claude-haiku-4-5",
     CHAT_MODEL="",
     DATABASE_URL="",
     OUTPUT_DIR="output",
@@ -21,6 +22,10 @@ _cfg = types.SimpleNamespace(
     MAX_CHAT_TOOL_CALLS=8,
     KILL_SWITCH=False,
     KILL_SWITCH_FILE="/tmp/__no_kill__.flag",
+    SIGNAL_WEIGHTS={"news_sentiment": 0.20, "bulk_deals": 0.20, "momentum": 0.15,
+                    "value": 0.20, "delivery_pct": 0.10, "52w_position": 0.05,
+                    "institutional_trend": 0.05, "sector_rotation": 0.05},
+    TOP_N_STOCKS=15,
 )
 sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 

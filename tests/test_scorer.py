@@ -50,9 +50,14 @@ sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
 def _use_mock_config():
     # Other test files install their own config into sys.modules; reassert ours so
     # this file's lazy `import config` (ranker/screener) binds correctly regardless
-    # of collection/run order.
+    # of collection/run order. Also patch module-level SETTINGS in ranker/scorer
+    # directly to handle `from config import SETTINGS` bindings.
     sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
+    import scoring.ranker as _ranker
+    _orig = _ranker.SETTINGS
+    _ranker.SETTINGS = mock_config
     yield
+    _ranker.SETTINGS = _orig
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────

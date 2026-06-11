@@ -49,7 +49,13 @@ def _bind(tmp_path):
     store_mod.SETTINGS = _cfg
     tools_mod.SETTINGS = _cfg
     tools_mod.reset_turn_state()
+    # Ensure ranker uses our config regardless of module import order.
+    # Restore the original binding after each test to prevent cross-file contamination.
+    import scoring.ranker as ranker_mod
+    _orig_ranker_settings = ranker_mod.SETTINGS
+    ranker_mod.SETTINGS = _cfg
     yield
+    ranker_mod.SETTINGS = _orig_ranker_settings
 
 
 def _write_snapshot(run_date=_TODAY, rows=_ROWS):
