@@ -62,8 +62,8 @@ class Settings:
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     # --- Models ---
-    SCORING_MODEL: str = "claude-haiku-4-5"
-    REPORT_MODEL: str = "claude-sonnet-4-6"
+    SCORING_MODEL: str = "deepseek/deepseek-chat"
+    REPORT_MODEL: str = "deepseek/deepseek-chat"
     OPENROUTER_SCORING_MODEL: str = "deepseek/deepseek-chat"
     OPENROUTER_REPORT_MODEL: str = "deepseek/deepseek-chat"
 
