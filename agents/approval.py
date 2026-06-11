@@ -26,7 +26,7 @@ def send_approval_request(payload: dict) -> bool:
     if not (getattr(SETTINGS, "TELEGRAM_BOT_TOKEN", "") and getattr(SETTINGS, "TELEGRAM_CHAT_ID", "")):
         logger.warning("approval: Telegram not configured — cannot send approval request")
         return False
-    from notifications.telegram_notifier import _send_text
+    from notifications.telegram_notifier import send_text as _send_text
 
     lines = ["<b>⚠️ Trade approval required</b>", f"run: <code>{payload.get('run_id', '')}</code>", ""]
     for p in payload.get("proposals", []):

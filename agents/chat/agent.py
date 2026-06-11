@@ -75,16 +75,22 @@ def _reply_from(result: dict) -> str:
     return "I could not produce an answer — please try rephrasing."
 
 
-def _turn_tokens(result: dict) -> int:
-    total = 0
+def _turn_tokens(result: dict) -> tuple[int, float]:
+    """Return (total_tokens, estimated_cost_usd) across all messages in the result."""
+    total, cost = 0, 0.0
     for msg in result.get("messages", []):
         meta = getattr(msg, "usage_metadata", None) or {}
-        if isinstance(meta, dict):
-            total += int(meta.get("total_tokens", 0) or 0)
-    return total
+        if not isinstance(meta, dict):
+            continue
+        inp = int(meta.get("input_tokens", 0) or 0)
+        out = int(meta.get("output_tokens", 0) or 0)
+        total += inp + out
+        # Sonnet-class pricing: $3/M input, $15/M output (conservative estimate)
+        cost += inp * 3e-6 + out * 15e-6
+    return total, round(cost, 6)
 
 
-def _record_turn(chat_id: str, tokens: int, status: str) -> None:
+def _record_turn(chat_id: str, tokens: int, cost_usd: float, status: str) -> None:
     if not getattr(SETTINGS, "DATABASE_URL", ""):
         return
     try:
@@ -97,7 +103,7 @@ def _record_turn(chat_id: str, tokens: int, status: str) -> None:
                 report_date=date.today().isoformat(),
                 mode="chat",
                 status=status,
-                cost_usd=0.0,
+                cost_usd=cost_usd,
                 tokens=tokens,
                 finished_at=datetime.utcnow(),
             ))
@@ -120,19 +126,21 @@ def run_turn(chat_id: str, text: str) -> str:
         # one model step + one tool step per call → 2 graph steps per tool use
         "recursion_limit": 2 * int(getattr(SETTINGS, "MAX_CHAT_TOOL_CALLS", 8)) + 1,
     }
+    from langgraph.errors import GraphRecursionError
+
     try:
         result = _get_agent().invoke({"messages": [("user", text)]}, cfg)
-    except Exception as e:
-        if type(e).__name__ == "GraphRecursionError":
-            logger.warning("chat turn hit the tool-call cap")
-            _record_turn(chat_id, 0, "MAX_ROUNDS")
-            return ("I hit my research-step limit on that one. "
-                    "Try narrowing the question (fewer stocks or one specific filter).")
+    except GraphRecursionError:
+        logger.warning("chat turn hit the tool-call cap")
+        _record_turn(chat_id, 0, 0.0, "MAX_ROUNDS")
+        return ("I hit my research-step limit on that one. "
+                "Try narrowing the question (fewer stocks or one specific filter).")
+    except Exception:
         logger.exception("chat turn failed")
-        _record_turn(chat_id, 0, "FAILED")
+        _record_turn(chat_id, 0, 0.0, "FAILED")
         return "Something went wrong while researching that — please try again."
 
-    tokens = _turn_tokens(result)
-    _record_turn(chat_id, tokens, "COMPLETED")
-    logger.info("chat turn done (chat=%s, tokens=%d)", chat_id, tokens)
+    tokens, cost_usd = _turn_tokens(result)
+    _record_turn(chat_id, tokens, cost_usd, "COMPLETED")
+    logger.info("chat turn done (chat=%s, tokens=%d, cost=$%.4f)", chat_id, tokens, cost_usd)
     return _reply_from(result)
