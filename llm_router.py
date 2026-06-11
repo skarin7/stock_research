@@ -33,6 +33,10 @@ def report_model() -> str:
     return SETTINGS.OPENROUTER_REPORT_MODEL if is_openrouter() else SETTINGS.REPORT_MODEL
 
 
+def chat_model() -> str:
+    return SETTINGS.OPENROUTER_CHAT_MODEL if is_openrouter() else SETTINGS.REPORT_MODEL
+
+
 def openrouter_client():
     """Cached OpenAI-SDK client pointed at OpenRouter."""
     global _openrouter_client

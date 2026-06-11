@@ -44,12 +44,13 @@ def build_chat_agent(checkpointer=None):
     """Compile the ReAct agent (model + tools + per-chat memory)."""
     from langgraph.prebuilt import create_react_agent
 
+    import llm_router
     from agents.chat.tools import CHAT_TOOLS
     from agents.graph import get_checkpointer
     from agents.llm import get_chat_model
 
     model = get_chat_model(
-        model=getattr(SETTINGS, "CHAT_MODEL", "") or SETTINGS.REPORT_MODEL,
+        model=getattr(SETTINGS, "CHAT_MODEL", "") or llm_router.chat_model(),
         max_tokens=2048,
         temperature=0.3,
     )

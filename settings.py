@@ -66,6 +66,7 @@ class Settings:
     REPORT_MODEL: str = "claude-sonnet-4-6"
     OPENROUTER_SCORING_MODEL: str = "deepseek/deepseek-chat"
     OPENROUTER_REPORT_MODEL: str = "deepseek/deepseek-chat"
+    OPENROUTER_CHAT_MODEL: str = "deepseek/deepseek-chat"
 
     # --- Signal weights / screener filters ---
     SIGNAL_WEIGHTS: dict = field(default_factory=_default_signal_weights)
@@ -173,6 +174,7 @@ class Settings:
             OPENROUTER_BASE_URL=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             OPENROUTER_SCORING_MODEL=os.environ.get("OPENROUTER_SCORING_MODEL", "deepseek/deepseek-chat"),
             OPENROUTER_REPORT_MODEL=os.environ.get("OPENROUTER_REPORT_MODEL", "deepseek/deepseek-chat"),
+            OPENROUTER_CHAT_MODEL=os.environ.get("OPENROUTER_CHAT_MODEL", "deepseek/deepseek-chat"),
             INTRADAY_SCORE_THRESHOLD=int(os.environ.get("INTRADAY_SCORE_THRESHOLD", "5")),
             INTRADAY_HIGH_CONVICTION=int(os.environ.get("INTRADAY_HIGH_CONVICTION", "7")),
             INTRADAY_TOP_N=int(os.environ.get("INTRADAY_TOP_N", "10")),
