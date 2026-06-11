@@ -8,3 +8,11 @@ output/
 logs/
 *.egg-info/
 .pytest_cache/
+
+# Terraform — state contains injected secrets; tfvars holds credentials
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.*
+deploy/terraform/*.tfvars
+deploy/terraform/.terraform.lock.hcl
+deploy/terraform/tfplan

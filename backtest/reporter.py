@@ -8,11 +8,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
-BACKTEST_LOG = Path(config.OUTPUT_DIR) / "backtest_log.json"
+BACKTEST_LOG = Path(SETTINGS.OUTPUT_DIR) / "backtest_log.json"
 
 
 def load_backtest_log() -> list[dict]:
@@ -65,11 +65,11 @@ def signal_accuracy_report() -> dict:
 
     # We'd need scores.json for each date to cross-reference signals with returns
     signal_data: dict[str, dict] = {}
-    signal_names = list(config.SIGNAL_WEIGHTS.keys())
+    signal_names = list(SETTINGS.SIGNAL_WEIGHTS.keys())
 
     for entry in log:
         date_str = entry.get("signal_date", "")
-        scores_path = Path(config.OUTPUT_DIR) / date_str / "scores.json"
+        scores_path = Path(SETTINGS.OUTPUT_DIR) / date_str / "scores.json"
         if not scores_path.exists():
             continue
 

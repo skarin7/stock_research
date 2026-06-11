@@ -10,12 +10,12 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
 NIFTY50_SYMBOL = "NIFTY50"  # Groww symbol for Nifty 50 index
-BACKTEST_LOG = Path(config.OUTPUT_DIR) / "backtest_log.json"
+BACKTEST_LOG = Path(SETTINGS.OUTPUT_DIR) / "backtest_log.json"
 
 # NSE holidays — extend this list annually or load from an external source
 _NSE_HOLIDAYS_2026 = {
@@ -56,8 +56,8 @@ def _load_scores(scores_path: Path) -> list[dict]:
 def _fetch_close(symbol: str, target_date: date) -> Optional[float]:
     """Fetch closing price for a symbol on a given date via Groww API."""
     try:
-        from enrichment.groww_client import get_candles
-        candles = get_candles(symbol, lookback_days=10, to_date=target_date)
+        from enrichment.market_data import get_default_provider
+        candles = get_default_provider().get_ohlcv(symbol, days=10, to_date=target_date)
         # Find the candle matching target_date
         for c in reversed(candles):
             c_date = date.fromisoformat(c[0][:10])
@@ -75,7 +75,7 @@ def run_backtest(signal_date: date) -> Optional[dict]:
     Returns a backtest result dict, or None if no scores found.
     """
     date_str = signal_date.strftime("%Y-%m-%d")
-    scores_path = Path(config.OUTPUT_DIR) / date_str / "scores.json"
+    scores_path = Path(SETTINGS.OUTPUT_DIR) / date_str / "scores.json"
     all_scores = _load_scores(scores_path)
 
     if not all_scores:

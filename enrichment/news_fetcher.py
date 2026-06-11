@@ -20,7 +20,7 @@ from typing import Optional
 
 import requests
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ def _get_gemini_client():
     global _gemini_client
     if _gemini_client is None:
         from google import genai
-        _gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
+        _gemini_client = genai.Client(api_key=SETTINGS.GEMINI_API_KEY)
     return _gemini_client
 
 
@@ -187,7 +187,7 @@ def fetch_macro_context(sectors: Optional[list[str]] = None) -> tuple[str, dict]
     (summary, {}) when unavailable or unparseable. Single LLM call regardless of
     sector count, so cost is unchanged.
     """
-    if not config.GEMINI_API_KEY:
+    if not SETTINGS.GEMINI_API_KEY:
         logger.info("GEMINI_API_KEY not set — skipping macro context")
         return "", {}
 

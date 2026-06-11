@@ -6,6 +6,7 @@ Run: python -m pytest tests/ -v
 
 import json
 import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -42,7 +43,21 @@ mock_config.OHLC_LOOKBACK_DAYS = 10
 mock_config.GROWW_RATE_LIMIT_DELAY_MS = 0
 mock_config.GROWW_BASE_URL = "https://api.groww.in/v1/market"
 mock_config.OUTPUT_DIR = "output"
-sys.modules["config"] = mock_config
+sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
+
+
+@pytest.fixture(autouse=True)
+def _use_mock_config():
+    # Other test files install their own config into sys.modules; reassert ours so
+    # this file's lazy `import config` (ranker/screener) binds correctly regardless
+    # of collection/run order. Also patch module-level SETTINGS in ranker/scorer
+    # directly to handle `from config import SETTINGS` bindings.
+    sys.modules["config"] = types.SimpleNamespace(SETTINGS=mock_config)
+    import scoring.ranker as _ranker
+    _orig = _ranker.SETTINGS
+    _ranker.SETTINGS = mock_config
+    yield
+    _ranker.SETTINGS = _orig
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────

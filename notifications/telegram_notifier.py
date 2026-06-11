@@ -13,16 +13,21 @@ from pathlib import Path
 
 import requests
 
-import config
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_MSG = 4000  # Telegram limit is 4096; stay under for safety
 
+BULLISH_SCORE_THRESHOLD = 7   # signal score ≥ this → green dot
+BEARISH_SCORE_THRESHOLD = 4   # signal score ≤ this → red dot
+TOP_STOCKS_DISPLAY = 10       # cap stock cards in the report
+MEDAL_COUNT = 3               # 🥇🥈🥉 for the top 3, numbered after
+
 
 def _post(method: str, **kwargs) -> bool:
-    url = _API.format(token=config.TELEGRAM_BOT_TOKEN, method=method)
+    url = _API.format(token=SETTINGS.TELEGRAM_BOT_TOKEN, method=method)
     try:
         resp = requests.post(url, timeout=30, **kwargs)
         resp.raise_for_status()
@@ -36,7 +41,7 @@ def _post(method: str, **kwargs) -> bool:
         return False
 
 
-def _send_text(chat_id: str, text: str) -> bool:
+def send_text(chat_id: str, text: str) -> bool:
     return _post("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
@@ -45,11 +50,15 @@ def _send_text(chat_id: str, text: str) -> bool:
     })
 
 
+# Keep private alias for internal callers that haven't been migrated yet.
+_send_text = send_text
+
+
 def _sentiment_emoji(signals: dict, key: str) -> str:
     score = signals.get(key, {}).get("score", 5)
-    if score >= 7:
+    if score >= BULLISH_SCORE_THRESHOLD:
         return "🟢"
-    if score <= 4:
+    if score <= BEARISH_SCORE_THRESHOLD:
         return "🔴"
     return "🟡"
 
@@ -77,7 +86,7 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
     messages = []
     current = ["<b>🏆 Top Picks</b>", ""]
 
-    for i, s in enumerate(top_stocks[:10]):
+    for i, s in enumerate(top_stocks[:TOP_STOCKS_DISPLAY]):
         ticker    = s.get("ticker", "")
         score     = s.get("composite_score", 0)
         signals   = s.get("signals", {})
@@ -87,7 +96,7 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
         high52    = s.get("52w_high")
         low52     = s.get("52w_low")
 
-        medal = MEDALS[i] if i < 3 else f"{i + 1}."
+        medal = MEDALS[i] if i < MEDAL_COUNT else f"{i + 1}."
 
         # Header: medal + ticker + score (no block-char bar)
         card = [f"{medal} <b>{ticker}</b>  <b>{score:.1f}/10</b>"]
@@ -101,7 +110,8 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
             card.append(price_line)
 
         # Signal line — emoji BEFORE label so wraps stay clean
-        e = lambda k: _sentiment_emoji(signals, k)
+        def e(k: str) -> str:
+            return _sentiment_emoji(signals, k)
         card.append(
             f"{e('news_sentiment')}News · {e('momentum')}Mom · "
             f"{e('value')}Val · {e('bulk_deals')}Bulk"
@@ -159,6 +169,36 @@ _LEGEND = """\
 <i>Scores are AI-generated (Claude Haiku). Not financial advice.</i>"""
 
 
+def send_intraday_watchlist(alert_text: str) -> bool:
+    """Send the intraday next-day watchlist alert (already HTML-formatted by
+    intraday/report.py). Returns True on success, False if Telegram is
+    unconfigured or the send fails."""
+    if not SETTINGS.TELEGRAM_BOT_TOKEN or not SETTINGS.TELEGRAM_CHAT_ID:
+        logger.info("Telegram not configured — skipping intraday watchlist")
+        return False
+
+    ok = True
+    # Split on blank lines if the alert exceeds Telegram's limit.
+    if len(alert_text) <= _MAX_MSG:
+        chunks = [alert_text]
+    else:
+        chunks, cur = [], ""
+        for block in alert_text.split("\n\n"):
+            if len(cur) + len(block) + 2 > _MAX_MSG and cur:
+                chunks.append(cur)
+                cur = block
+            else:
+                cur = f"{cur}\n\n{block}" if cur else block
+        if cur:
+            chunks.append(cur)
+
+    for chunk in chunks:
+        ok = _send_text(SETTINGS.TELEGRAM_CHAT_ID, chunk) and ok
+    if ok:
+        logger.info("Intraday watchlist sent to Telegram")
+    return ok
+
+
 def send_report(
     top_stocks: list[dict],
     report_path: Path,
@@ -171,11 +211,11 @@ def send_report(
       Message 2+: Stock cards (split if > 4000 chars)
     Returns True if the macro message sent successfully.
     """
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+    if not SETTINGS.TELEGRAM_BOT_TOKEN or not SETTINGS.TELEGRAM_CHAT_ID:
         logger.info("Telegram not configured — skipping notification")
         return False
 
-    chat_id = config.TELEGRAM_CHAT_ID
+    chat_id = SETTINGS.TELEGRAM_CHAT_ID
 
     # Message 1: macro context
     macro_msg = _build_macro_message(report_date, macro_context)

@@ -8,9 +8,12 @@ Supported indices (set STOCK_UNIVERSE in config):
 """
 
 import logging
+from io import StringIO
 
 import pandas as pd
 import requests
+
+from scrapers.http_client import NSE_HEADERS, NSE_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +23,6 @@ _INDEX_URLS = {
     "nifty200": "https://archives.nseindia.com/content/indices/ind_nifty200list.csv",
     "nifty500": "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
 }
-
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.nseindia.com/",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
 
 def fetch_index_stocks(index: str = "nifty200") -> list[dict]:
     """
@@ -47,10 +40,9 @@ def fetch_index_stocks(index: str = "nifty200") -> list[dict]:
         raise ValueError(f"Unknown index '{index}'. Choose from: {list(_INDEX_URLS)}")
 
     logger.info("Downloading %s constituents from NSE", index.upper())
-    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp = requests.get(url, headers=NSE_HEADERS, timeout=NSE_TIMEOUT)
     resp.raise_for_status()
 
-    from io import StringIO
     df = pd.read_csv(StringIO(resp.text))
 
     # NSE CSV columns: "Company Name", "Industry", "Symbol", "Series", "ISIN Code"

@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    env:
+      # Tests mock `config` (no real keys needed); set a dummy so any stray real
+      # import of config.py can't KeyError on ANTHROPIC_API_KEY.
+      ANTHROPIC_API_KEY: ci-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: System libs for lxml (matches Dockerfile)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc libxml2-dev libxslt-dev
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
