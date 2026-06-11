@@ -21,6 +21,11 @@ output "view_logs" {
   value = "gcloud run jobs executions list --job=${var.job_name} --region=${var.region}"
 }
 
+output "chat_webhook_url" {
+  value       = var.enable_chat_agent ? "${google_cloud_run_v2_service.chat[0].uri}/telegram/webhook" : "enable_chat_agent=false — not provisioned"
+  description = "Register this URL with Telegram: python scripts/set_webhook.py"
+}
+
 output "durable_state" {
   value       = var.database_url == "" ? "NO DATABASE_URL set — LangGraph falls back to in-memory (no resumable runs / no trade-approval persistence). Set database_url to your Neon connection string." : "Postgres configured."
   description = "Whether durable agent/trading state is wired up."

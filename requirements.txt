@@ -10,6 +10,10 @@ google-genai>=2.0.0
 pyotp>=2.9.0
 growwapi>=1.5.0
 
+# Telegram chat webhook server
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
 # Multi-agent system (LangGraph orchestration)
 langgraph>=1.0.0
 langchain-anthropic>=1.0.0

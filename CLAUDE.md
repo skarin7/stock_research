@@ -20,11 +20,14 @@ The project lives at the **repo root** — an NSE/BSE daily stock-scoring pipeli
   reports/              # HTML report (Jinja2) + Claude Sonnet narrative
   notifications/        # Telegram delivery
   agents/               # LangGraph multi-agent layer (wraps the modules above)
+  agents/chat/          # Conversational chat agent (tools.py + agent.py)
+  server/               # FastAPI webhook server for the chat agent (server/app.py)
+  scripts/              # run_chat_local.py (long-poll dev loop), set_webhook.py
   persistence/          # Postgres ORM (runs, proposals, positions, orders, audit)
   observability/        # Langfuse callback + Prometheus metrics
   deploy/               # docker-compose.obs.yml (postgres + langfuse + prometheus + grafana)
   tests/                # pytest unit tests (no API keys needed)
-  output/               # YYYY-MM-DD/scores.json + report.html, backtest_log.json
+  output/               # YYYY-MM-DD/scores.json + report.html, snapshot.json, backtest_log.json
   scheduler/cron.sh     # cron wrapper for production scheduling
 ```
 
@@ -160,3 +163,35 @@ The Dockerfile uses `python:3.12-slim` and needs `gcc`, `libxml2-dev`, `libxslt-
 - **Adopting `setup_gcp.sh` resources into Terraform**: `deploy/terraform/import.sh` imports the gcloud-created job/repo/SAs/scheduler into state (idempotent, zero cost) so `terraform apply` manages them instead of erroring on "already exists".
 - **Memory agent** (`agents/nodes/memory.py`): runs after `finalize`; records each ranked call (score/conviction/rationale + a coarse regime label) into long-term memory (`persistence/store.py` append-only jsonl) and stores a per-signal accuracy self-evaluation from the backtest log. Agents read it back via `store.recent_calls(ticker)` / `store.latest_signal_perf()` (feeding it into scoring weights is a future tuning step). Gated by `ENABLE_MEMORY_AGENT`.
 - **Monitoring agent** (`agents/nodes/monitoring.py`, `build_monitor_graph`): a standalone `START → monitor → END` graph run via `run_agents.py --mode monitor`. It loads the book, fetches a live price per position (`_current_price`, monkeypatchable), evaluates stop-losses → `Alert`s, and notifies on critical ones. Paper book auto-exits stopped positions; under `ENABLE_LIVE_TRADING` it alerts only (real exits must go through the broker). It runs as a **scheduled job every few minutes during market hours** (Terraform: `enable_monitoring=true` provisions a second Cloud Run Job + Scheduler on `monitor_schedule`), NOT a 24/7 service — an always-on service would break the scale-to-zero cost model.
+
+## Conversational chat agent (Telegram)
+
+A second, parallel entrypoint: the user asks free-form trade questions on Telegram and the agent researches and answers using the existing pipeline modules as tools.
+
+```bash
+# Local dev (long-poll, no public URL needed):
+python scripts/run_chat_local.py
+
+# Production: deploy the Cloud Run service, then register the webhook once:
+python scripts/set_webhook.py https://<service-url>/telegram/webhook
+```
+
+**Architecture**: `Telegram → server/app.py (FastAPI webhook) → agents/chat/agent.py (ReAct agent) → tools → reply`.
+
+The daily scheduled run's output is now also written to `output/<date>/snapshot.json` (and the `daily_snapshot` Postgres table when `DATABASE_URL` is set). The chat agent's `screen_snapshot` tool filters this cache; live top-up tools are called only on the shortlist.
+
+**`agents/chat/tools.py`** — six tools, all returning error-dicts on failure:
+- `screen_snapshot(filters)` — filters the daily snapshot (PE, sector, score, has_news); flags staleness.
+- `live_quote(symbols)` — live prices from the market-data provider chain.
+- `fetch_news(symbols)` — fresh headlines from Google News RSS.
+- `score_subset(symbols)` — re-scores a shortlist with fresh news + live price (Haiku).
+- `deep_dive(ticker)` — runs the debate bull↔bear subgraph → `ConvictionView`; capped at 1 per turn.
+- `get_portfolio()` — current paper-trading book.
+
+**`agents/chat/agent.py`** — `build_chat_agent()` builds a `create_react_agent` with the Sonnet model (`CHAT_MODEL`, default = `REPORT_MODEL`), per-chat checkpointer (thread_id = chat_id), and the system prompt. `run_turn(chat_id, text)` is the single entrypoint — honours kill-switch, bounds the loop via `MAX_CHAT_TOOL_CALLS`, and never raises.
+
+**`server/app.py`** — FastAPI webhook: secret-token auth (`TELEGRAM_WEBHOOK_SECRET`), chat-ID allowlist, `update_id` dedup ring, always returns 200 to prevent Telegram retry storms.
+
+**Config**: `ENABLE_CHAT_AGENT` (false), `CHAT_MODEL` (""), `TELEGRAM_WEBHOOK_SECRET` (""), `MAX_CHAT_TOOL_CALLS` (8), `MAX_CHAT_TURN_COST_USD` (0.25), `SNAPSHOT_STALE_DAYS` (3).
+
+**Terraform** (`deploy/terraform/`): `enable_chat_agent=true` + `telegram_webhook_secret=<token>` provisions a Cloud Run **service** (not a job) that receives webhook updates (min-instances=0, request-timeout=300 s, public invoker). The `chat_webhook_url` output is the URL to register. Order placement from chat is out of scope for v1; the seam is `propose_trade` → the existing risk → portfolio → approval chain.

@@ -212,3 +212,22 @@ variable "screener_screen_slug" {
   type    = string
   default = ""
 }
+
+# ── Chat agent (Telegram webhook service) ──────────────────────────────────────
+variable "enable_chat_agent" {
+  type        = bool
+  description = "Provision the Cloud Run service that receives Telegram webhook updates."
+  default     = false
+}
+
+variable "chat_service_name" {
+  type    = string
+  default = "stock-intelligence-chat"
+}
+
+variable "telegram_webhook_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+  description = "Secret token sent by Telegram in X-Telegram-Bot-Api-Secret-Token header."
+}

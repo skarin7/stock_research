@@ -13,6 +13,12 @@ locals {
 
   # All env vars on the job. Empties are filtered out so optional creds don't
   # create blank env entries. The app reads these via config.py.
+  chat_service_name = var.chat_service_name
+  chat_env = merge(local.env_vars, {
+    ENABLE_CHAT_AGENT       = "true"
+    TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret
+  })
+
   env_all = merge(
     {
       ANTHROPIC_API_KEY    = var.anthropic_api_key
@@ -194,6 +200,57 @@ resource "google_cloud_run_v2_job_iam_member" "monitor_invoker" {
   name     = google_cloud_run_v2_job.monitor[0].name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+# ── Chat agent Cloud Run Service (Telegram webhook) ───────────────────────────
+resource "google_cloud_run_v2_service" "chat" {
+  count    = var.enable_chat_agent ? 1 : 0
+  name     = local.chat_service_name
+  location = var.region
+
+  deletion_protection = false
+
+  template {
+    service_account = google_service_account.job.email
+
+    timeout = "300s"
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+
+    containers {
+      image   = local.image
+      command = ["python"]
+      args    = ["-m", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8080"]
+      ports { container_port = 8080 }
+
+      resources {
+        limits = { cpu = "1", memory = var.memory }
+      }
+
+      dynamic "env" {
+        for_each = local.chat_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Allow unauthenticated invocations (Telegram sends plain HTTPS).
+resource "google_cloud_run_v2_service_iam_member" "chat_public" {
+  count    = var.enable_chat_agent ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.chat[0].name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 resource "google_cloud_scheduler_job" "monitor" {
