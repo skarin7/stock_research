@@ -41,13 +41,17 @@ def _post(method: str, **kwargs) -> bool:
         return False
 
 
-def _send_text(chat_id: str, text: str) -> bool:
+def send_text(chat_id: str, text: str) -> bool:
     return _post("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
     })
+
+
+# Keep private alias for internal callers that haven't been migrated yet.
+_send_text = send_text
 
 
 def _sentiment_emoji(signals: dict, key: str) -> str:

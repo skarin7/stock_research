@@ -9,6 +9,7 @@ when a database is configured.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from datetime import date, datetime
 
@@ -36,6 +37,7 @@ language; mention key risks when recommending.
 - You cannot place orders. If asked to trade, say order placement is not enabled from chat yet."""
 
 _agent = None
+_agent_lock = threading.Lock()
 
 
 def build_chat_agent(checkpointer=None):
