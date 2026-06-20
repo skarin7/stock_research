@@ -75,6 +75,24 @@ def _delay() -> float:
     return SETTINGS.GROWW_RATE_LIMIT_DELAY_MS / 1000.0
 
 
+def _log_data_error(op: str, symbol: str, e: Exception) -> None:
+    """Log a Groww data-fetch failure, calling out 403 = missing data permission.
+
+    A 403 here is authorisation, not authentication: TOTP login succeeded but the
+    API key/account is not entitled to the Market Data API. It will not fix itself
+    on retry — the account needs the live/historical data permission enabled. The
+    FallbackChain drops to yfinance, so the run continues regardless.
+    """
+    if str(getattr(e, "code", "")) == "403":
+        logger.warning(
+            "Groww %s for %s: 403 — API token lacks Market Data permission "
+            "(auth OK, account not entitled to live/historical data; falling back). %s",
+            op, symbol, e,
+        )
+    else:
+        logger.warning("Groww %s for %s failed: %s", op, symbol, e)
+
+
 def _safe_float(payload: dict, keys: list[str]) -> Optional[float]:
     for k in keys:
         v = payload.get(k)
@@ -128,7 +146,7 @@ class GrowwProvider:
                                 float(r[3]), float(r[4]), float(r[5])))
             return sorted(candles, key=lambda c: c[0])
         except Exception as e:
-            logger.warning("Groww historical candles failed for %s: %s", symbol, e)
+            _log_data_error("historical candles", symbol, e)
             return []
 
     def get_quote(self, symbol: str) -> Quote:
@@ -152,7 +170,7 @@ class GrowwProvider:
                 "week52_low": _safe_float(payload, ["52WeekLow", "yearLow", "week52Low"]),
             }
         except Exception as e:
-            logger.warning("Quote fetch failed for %s: %s", symbol, e)
+            _log_data_error("quote fetch", symbol, e)
             return {}
 
     def get_option_chain(self, symbol: str) -> OptionSignals:
@@ -181,5 +199,5 @@ class GrowwProvider:
                 unusual = top3 / tot_call_oi > self.UNUSUAL_OI_THRESHOLD
             return {"pcr": pcr, "unusual_call_oi": unusual}
         except Exception as e:
-            logger.warning("Groww option chain failed for %s: %s", symbol, e)
+            _log_data_error("option chain", symbol, e)
             return {"pcr": None, "unusual_call_oi": False}
