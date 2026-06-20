@@ -1,16 +1,23 @@
 """Groww API market-data adapter — official source (primary).
 
-Auth: TOTP flow (preferred, no daily expiry) — set GROWW_TOTP_TOKEN +
-GROWW_TOTP_SECRET. Falls back to legacy JWT (GROWW_API_KEY) if TOTP vars absent.
+Auth: TOTP flow (preferred) — set GROWW_TOTP_TOKEN + GROWW_TOTP_SECRET. Falls
+back to legacy JWT (GROWW_API_KEY) if TOTP vars absent. NOTE: per Groww's docs
+all auth methods (Access Token, Key+Secret, Key+TOTP) require a *daily approval*
+on the Groww Cloud API Keys page — TOTP avoids per-request OTP entry but is NOT
+exempt from the daily re-approval.
 
 The growwapi SDK is imported lazily so this module imports cleanly without the
 SDK installed (callers/tests inject a client_factory). Every fetch degrades to
 empty/None on failure — a dead source must never abort a run.
 
-NOTE: the Groww daily-candle params/constant and option-chain response shape are
-unverified against the installed SDK (mirrors the broker seam). The yfinance
-fallback in FallbackChain keeps the system working today; verify the Groww path
-against the SDK before relying on it.
+Verified against the installed SDK: get_ohlcv uses the current (non-deprecated)
+`get_historical_candles` (V2, /historical/candles) with candle_interval="1day";
+`get_historical_candle_data` is the deprecated one — do not switch back to it.
+The remaining unverified bits are the exact `groww_symbol` format ("NSE-<SYM>")
+and the option-chain response shape, plus access itself: the Market Data /
+historical endpoints require an *active paid Trading API subscription* — without
+it every data call returns 403 (see _log_data_error). The yfinance fallback in
+FallbackChain keeps the system working until the subscription is active.
 """
 from __future__ import annotations
 
@@ -47,7 +54,8 @@ def _segment() -> str:
 
 
 def _get_access_token() -> str:
-    """Generate a fresh Groww access token. Prefers TOTP (no daily expiry)."""
+    """Generate a fresh Groww access token. Prefers TOTP (no per-request OTP);
+    note Groww still requires daily key approval on the Cloud API Keys page."""
     GrowwAPI = _sdk()
     if SETTINGS.GROWW_TOTP_TOKEN and SETTINGS.GROWW_TOTP_SECRET:
         try:
@@ -123,9 +131,9 @@ class GrowwProvider:
             client = self._client()
             time.sleep(_delay())
             try:
-                interval = getattr(_sdk(), "CANDLE_INTERVAL_DAY", "1440")
+                interval = getattr(_sdk(), "CANDLE_INTERVAL_DAY", "1day")
             except Exception:
-                interval = "1440"
+                interval = "1day"
             resp = client.get_historical_candles(
                 exchange=self._exchange,
                 segment=self._segment,

@@ -81,6 +81,47 @@ def test_groww_is_market_data_provider():
     assert isinstance(GrowwProvider(client_factory=lambda: None), MarketDataProvider)
 
 
+def test_groww_ohlcv_parses_v2_candles():
+    """Locks the current (non-deprecated) get_historical_candles V2 path + shape."""
+    import datetime
+
+    from enrichment.market_data.groww import GrowwProvider
+
+    epoch = int(datetime.datetime(2026, 1, 1, 9, 15).timestamp())
+    captured = {}
+
+    class FakeClient:
+        def get_historical_candles(self, **k):
+            captured.update(k)
+            return {"candles": [[epoch, 1.0, 2.0, 0.5, 1.5, 1000.0]]}
+
+    out = GrowwProvider(client_factory=lambda: FakeClient()).get_ohlcv("INFY", days=30)
+    assert len(out) == 1
+    assert out[0][1:] == (1.0, 2.0, 0.5, 1.5, 1000.0)
+    assert captured["candle_interval"] == "1day"   # daily V2 constant
+    assert captured["groww_symbol"] == "NSE-INFY"
+
+
+def test_groww_ohlcv_interval_fallback_when_constant_missing(monkeypatch):
+    """When the SDK lacks CANDLE_INTERVAL_DAY, fall back to the literal '1day'
+    (the real constant's value), not the stale '1440'."""
+    import enrichment.market_data.groww as g
+
+    class StubSDK:  # no CANDLE_INTERVAL_DAY / EXCHANGE_NSE attrs
+        pass
+
+    monkeypatch.setattr(g, "_sdk", lambda: StubSDK)
+    captured = {}
+
+    class FakeClient:
+        def get_historical_candles(self, **k):
+            captured.update(k)
+            return {"candles": []}
+
+    g.GrowwProvider(client_factory=lambda: FakeClient()).get_ohlcv("INFY", days=5)
+    assert captured["candle_interval"] == "1day"
+
+
 def test_fallback_uses_second_when_first_empty():
     from enrichment.market_data.fallback import FallbackChain
 
