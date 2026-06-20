@@ -180,18 +180,21 @@ python scripts/set_webhook.py https://<service-url>/telegram/webhook
 
 The daily scheduled run's output is now also written to `output/<date>/snapshot.json` (and the `daily_snapshot` Postgres table when `DATABASE_URL` is set). The chat agent's `screen_snapshot` tool filters this cache; live top-up tools are called only on the shortlist.
 
-**`agents/chat/tools.py`** — six tools, all returning error-dicts on failure:
+**`agents/chat/tools.py`** — nine tools, all returning error-dicts on failure:
 - `screen_snapshot(filters)` — filters the daily snapshot (PE, sector, score, has_news); flags staleness.
 - `live_quote(symbols)` — live prices from the market-data provider chain.
 - `fetch_news(symbols)` — fresh headlines from Google News RSS.
 - `score_subset(symbols)` — re-scores a shortlist with fresh news + live price (Haiku).
 - `deep_dive(ticker)` — runs the debate bull↔bear subgraph → `ConvictionView`; capped at 1 per turn.
 - `get_portfolio()` — current paper-trading book.
+- `macro_search(query)` — Tavily web search (gated on `TAVILY_API_KEY`, free tier) to ground event/geopolitical questions; agent maps the event → sectors → `screen_snapshot`.
+- `timing(ticker)` — deterministic technicals (RSI14, 52w position, 20d breakout, momentum, support/resistance) from `intraday/technicals.py` over provider OHLCV; the agent composes the buy-zone/stop/target verdict (no nested LLM).
+- `recall(ticker)` — past calls the agent recorded on a stock via `store.recent_calls`.
 
 **`agents/chat/agent.py`** — `build_chat_agent()` builds a `create_react_agent` with the Sonnet model (`CHAT_MODEL`, default = `REPORT_MODEL`), per-chat checkpointer (thread_id = chat_id), and the system prompt. `run_turn(chat_id, text)` is the single entrypoint — honours kill-switch, bounds the loop via `MAX_CHAT_TOOL_CALLS`, and never raises.
 
 **`server/app.py`** — FastAPI webhook: secret-token auth (`TELEGRAM_WEBHOOK_SECRET`), chat-ID allowlist, `update_id` dedup ring, always returns 200 to prevent Telegram retry storms.
 
-**Config**: `ENABLE_CHAT_AGENT` (false), `CHAT_MODEL` (""), `TELEGRAM_WEBHOOK_SECRET` (""), `MAX_CHAT_TOOL_CALLS` (8), `MAX_CHAT_TURN_COST_USD` (0.25), `SNAPSHOT_STALE_DAYS` (3).
+**Config**: `ENABLE_CHAT_AGENT` (false), `CHAT_MODEL` (""), `TELEGRAM_WEBHOOK_SECRET` (""), `MAX_CHAT_TOOL_CALLS` (8), `MAX_CHAT_TURN_COST_USD` (0.25), `SNAPSHOT_STALE_DAYS` (3), `TAVILY_API_KEY` ("") + `MACRO_SEARCH_MAX_RESULTS` (5) for `macro_search`.
 
 **Terraform** (`deploy/terraform/`): `enable_chat_agent=true` + `telegram_webhook_secret=<token>` provisions a Cloud Run **service** (not a job) that receives webhook updates (min-instances=0, request-timeout=300 s, public invoker). The `chat_webhook_url` output is the URL to register. Order placement from chat is out of scope for v1; the seam is `propose_trade` → the existing risk → portfolio → approval chain.

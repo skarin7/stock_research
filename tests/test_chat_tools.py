@@ -20,6 +20,8 @@ _cfg = types.SimpleNamespace(
     TRADING_CAPITAL_INR=100000.0,
     SIGNAL_WEIGHTS={"value": 1.0},
     TOP_N_STOCKS=15,
+    TAVILY_API_KEY="",
+    MACRO_SEARCH_MAX_RESULTS=5,
 )
 sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
@@ -216,3 +218,158 @@ def test_get_portfolio_returns_book():
     out = tools_mod.get_portfolio.func()
     assert out["cash"] == 100000.0
     assert out["positions"] == []
+
+
+# ── macro_search ──────────────────────────────────────────────────────────────
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def test_macro_search_no_key_returns_error():
+    _cfg.TAVILY_API_KEY = ""
+    out = tools_mod.macro_search.func("iran war impact")
+    assert "error" in out
+
+
+def test_macro_search_returns_results(monkeypatch):
+    _cfg.TAVILY_API_KEY = "k"
+    payload = {
+        "answer": "Crude spikes hurt importers.",
+        "results": [
+            {"title": "Oil up", "url": "http://a", "content": "brent rises"},
+            {"title": "Aviation hit", "url": "http://b", "content": "fuel costs"},
+        ],
+    }
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _FakeResp(payload))
+
+    out = tools_mod.macro_search.func("iran war impact on india")
+    assert out["answer"] == "Crude spikes hurt importers."
+    assert [r["url"] for r in out["results"]] == ["http://a", "http://b"]
+    assert out["results"][0]["snippet"] == "brent rises"
+    assert out["fetched_at"] == _TODAY
+
+
+def test_macro_search_caps_results(monkeypatch):
+    _cfg.TAVILY_API_KEY = "k"
+    _cfg.MACRO_SEARCH_MAX_RESULTS = 2
+    payload = {"answer": "", "results": [
+        {"title": f"t{i}", "url": f"http://{i}", "content": f"c{i}"} for i in range(5)]}
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _FakeResp(payload))
+
+    out = tools_mod.macro_search.func("q")
+    assert len(out["results"]) == 2
+
+
+def test_macro_search_wraps_errors(monkeypatch):
+    _cfg.TAVILY_API_KEY = "k"
+    import requests
+    monkeypatch.setattr(requests, "post",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
+    out = tools_mod.macro_search.func("q")
+    assert out == {"error": "timeout"}
+
+
+# ── timing ────────────────────────────────────────────────────────────────────
+
+def _ramp_candles(n=40, start=100.0, step=1.0):
+    """Ascending daily candles; last close is a new high → breakout."""
+    out = []
+    for i in range(n):
+        c = start + i * step
+        out.append((f"2026-05-{i + 1:02d}", c - 0.5, c + 0.5, c - 1.0, c, 1000.0 + i))
+    return out
+
+
+def test_timing_computes_metrics(monkeypatch):
+    candles = _ramp_candles()
+
+    class FakeProvider:
+        def get_ohlcv(self, sym, days=400, to_date=None):
+            return candles
+
+        def get_quote(self, sym):
+            return {"ltp": candles[-1][4]}
+
+    import enrichment.market_data as md
+    monkeypatch.setattr(md, "get_default_provider", lambda: FakeProvider())
+
+    out = tools_mod.timing.func("aaa")
+    assert out["ticker"] == "AAA"
+    assert out["ltp"] == candles[-1][4]
+    assert out["rsi14"] is not None and out["rsi14"] > 70  # straight uptrend
+    assert out["breakout_20d"] is True
+    assert out["resistance"] == max(c[2] for c in candles[-21:-1])  # prior-20d high
+    assert out["support"] is not None
+    assert 0.0 <= out["pct_52w_position"] <= 1.0
+
+
+def test_timing_empty_candles_returns_nulls(monkeypatch):
+    class FakeProvider:
+        def get_ohlcv(self, sym, days=400, to_date=None):
+            return []
+
+        def get_quote(self, sym):
+            return {}
+
+    import enrichment.market_data as md
+    monkeypatch.setattr(md, "get_default_provider", lambda: FakeProvider())
+
+    out = tools_mod.timing.func("ZZZ")
+    assert "error" not in out
+    assert out["rsi14"] is None
+    assert out["breakout_20d"] is None
+    assert out["pct_52w_position"] is None
+
+
+def test_timing_wraps_errors(monkeypatch):
+    class FakeProvider:
+        def get_ohlcv(self, sym, days=400, to_date=None):
+            raise RuntimeError("provider down")
+
+        def get_quote(self, sym):
+            return {}
+
+    import enrichment.market_data as md
+    monkeypatch.setattr(md, "get_default_provider", lambda: FakeProvider())
+
+    out = tools_mod.timing.func("AAA")
+    assert out == {"error": "provider down"}
+
+
+# ── recall ────────────────────────────────────────────────────────────────────
+
+def test_recall_returns_past_calls(monkeypatch):
+    monkeypatch.setattr(store_mod, "recent_calls", lambda t, limit=5: [
+        {"ticker": "AAA", "score": 8.0, "conviction": 0.7, "rationale": "cheap",
+         "regime": "risk-on", "outcome": "+2%", "date": "2026-06-13", "junk": "drop"},
+    ])
+    out = tools_mod.recall.func("aaa")
+    assert out["ticker"] == "AAA"
+    assert len(out["past_calls"]) == 1
+    call = out["past_calls"][0]
+    assert call["score"] == 8.0
+    assert call["regime"] == "risk-on"
+    assert "junk" not in call  # trimmed to known fields
+
+
+def test_recall_empty_when_no_memory(monkeypatch):
+    monkeypatch.setattr(store_mod, "recent_calls", lambda t, limit=5: [])
+    out = tools_mod.recall.func("AAA")
+    assert out == {"ticker": "AAA", "past_calls": []}
+
+
+def test_recall_wraps_errors(monkeypatch):
+    monkeypatch.setattr(store_mod, "recent_calls",
+                        lambda t, limit=5: (_ for _ in ()).throw(RuntimeError("boom")))
+    out = tools_mod.recall.func("AAA")
+    assert out == {"error": "boom"}

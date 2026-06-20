@@ -118,6 +118,8 @@ class Settings:
     MAX_CHAT_TOOL_CALLS: int = 8
     MAX_CHAT_TURN_COST_USD: float = 0.25
     SNAPSHOT_STALE_DAYS: int = 3
+    TAVILY_API_KEY: str = ""             # macro_search web grounding (free tier)
+    MACRO_SEARCH_MAX_RESULTS: int = 5
 
     # --- Cost / iteration guardrails ---
     MAX_DEBATE_ROUNDS: int = 3
@@ -199,6 +201,8 @@ class Settings:
             MAX_CHAT_TOOL_CALLS=int(os.environ.get("MAX_CHAT_TOOL_CALLS", "8")),
             MAX_CHAT_TURN_COST_USD=float(os.environ.get("MAX_CHAT_TURN_COST_USD", "0.25")),
             SNAPSHOT_STALE_DAYS=int(os.environ.get("SNAPSHOT_STALE_DAYS", "3")),
+            TAVILY_API_KEY=os.environ.get("TAVILY_API_KEY", ""),
+            MACRO_SEARCH_MAX_RESULTS=int(os.environ.get("MACRO_SEARCH_MAX_RESULTS", "5")),
             MAX_DEBATE_ROUNDS=int(os.environ.get("MAX_DEBATE_ROUNDS", "3")),
             DEBATE_TOP_N=int(os.environ.get("DEBATE_TOP_N", "5")),
             MAX_GRAPH_STEPS=int(os.environ.get("MAX_GRAPH_STEPS", "50")),

@@ -280,4 +280,114 @@ def get_portfolio() -> dict:
         return {"error": str(e)}
 
 
-CHAT_TOOLS = [screen_snapshot, live_quote, fetch_news, score_subset, deep_dive, get_portfolio]
+@tool
+def macro_search(query: str) -> dict:
+    """Web search for current macro / geopolitical events (e.g. "Iran war impact
+    on Indian markets crude oil"). Use this to ground event-driven questions, then
+    map the event to sectors and call screen_snapshot to name the affected stocks.
+
+    Returns a one-line answer plus source results (title, url, snippet) and the
+    fetch date. Always cite the source URLs and the date; it is news-derived
+    analysis, not a forecast.
+    """
+    api_key = getattr(SETTINGS, "TAVILY_API_KEY", "")
+    if not api_key:
+        return {"error": "macro search is not configured (set TAVILY_API_KEY)"}
+    try:
+        import requests
+
+        max_results = int(getattr(SETTINGS, "MACRO_SEARCH_MAX_RESULTS", 5))
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            json={"api_key": api_key, "query": query, "search_depth": "basic",
+                  "max_results": max_results, "include_answer": True},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = [{"title": r.get("title"), "url": r.get("url"),
+                    "snippet": r.get("content")}
+                   for r in (data.get("results") or [])[:max_results]]
+        return {"answer": data.get("answer") or "", "results": results,
+                "fetched_at": date.today().isoformat()}
+    except Exception as e:
+        logger.exception("macro_search failed")
+        return {"error": str(e)}
+
+
+@tool
+def timing(ticker: str) -> dict:
+    """Technical entry/exit read for one NSE stock (deterministic, no LLM).
+
+    Returns RSI(14), position within the 52-week range, 20-day breakout flag,
+    5/20-day momentum, and nearest support/resistance. Compose the buy-zone /
+    stop / target verdict yourself from these numbers — and always state the risks.
+    """
+    try:
+        from enrichment.market_data import get_default_provider
+        from intraday.technicals import compute_metrics, pct_change_ndays
+
+        ticker = ticker.upper()
+        provider = get_default_provider()
+        candles = provider.get_ohlcv(ticker, days=400) or []
+        m = compute_metrics(candles)
+
+        closes = [float(c[4]) for c in candles]
+        lows = [float(c[3]) for c in candles]
+        ltp = (provider.get_quote(ticker) or {}).get("ltp") or m.get("close")
+
+        high_52w = m.get("high_52w")
+        low_52w = min(lows) if lows else None
+        high_20d = m.get("high_20d")
+        support = min(lows[-20:]) if lows else None
+
+        pct_pos = None
+        if (ltp is not None and high_52w is not None and low_52w is not None
+                and high_52w > low_52w):
+            pct_pos = round((ltp - low_52w) / (high_52w - low_52w), 3)
+
+        breakout = None
+        if ltp is not None and high_20d is not None:
+            breakout = ltp > high_20d
+
+        return {
+            "ticker": ticker,
+            "ltp": ltp,
+            "rsi14": m.get("rsi14"),
+            "pct_52w_position": pct_pos,
+            "near_52w_high": None if pct_pos is None else pct_pos >= 0.95,
+            "near_52w_low": None if pct_pos is None else pct_pos <= 0.05,
+            "breakout_20d": breakout,
+            "mom_5d": pct_change_ndays(closes, 5),
+            "mom_20d": pct_change_ndays(closes, 20),
+            "support": support,
+            "resistance": high_20d,
+        }
+    except Exception as e:
+        logger.exception("timing failed")
+        return {"error": str(e)}
+
+
+_RECALL_FIELDS = ("ticker", "score", "conviction", "rationale", "regime", "outcome", "date")
+
+
+@tool
+def recall(ticker: str) -> dict:
+    """Past calls this agent recorded on a stock (score, conviction, rationale,
+    regime, outcome). Use when the user asks what you thought of a stock before.
+    Returns an empty list when there is no prior record.
+    """
+    try:
+        from persistence import store
+
+        ticker = ticker.upper()
+        calls = store.recent_calls(ticker) or []
+        trimmed = [{k: c.get(k) for k in _RECALL_FIELDS if k in c} for c in calls]
+        return {"ticker": ticker, "past_calls": trimmed}
+    except Exception as e:
+        logger.exception("recall failed")
+        return {"error": str(e)}
+
+
+CHAT_TOOLS = [screen_snapshot, live_quote, fetch_news, score_subset, deep_dive,
+              get_portfolio, macro_search, timing, recall]

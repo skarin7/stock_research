@@ -127,8 +127,12 @@ def test_reply_from_no_ai_returns_fallback():
 def test_turn_tokens_sums_all_messages():
     import agents.chat.agent as agent_mod
 
-    def _mk(tokens):
-        return types.SimpleNamespace(usage_metadata={"total_tokens": tokens})
+    def _mk(inp, out):
+        return types.SimpleNamespace(usage_metadata={"input_tokens": inp, "output_tokens": out})
 
-    result = {"messages": [_mk(100), _mk(50), types.SimpleNamespace(usage_metadata=None)]}
-    assert agent_mod._turn_tokens(result) == 150
+    result = {"messages": [_mk(100, 20), _mk(50, 10),
+                           types.SimpleNamespace(usage_metadata=None)]}
+    tokens, cost = agent_mod._turn_tokens(result)
+    assert tokens == 180  # 100+20 + 50+10
+    # Sonnet pricing: $3/M input, $15/M output
+    assert cost == round(150 * 3e-6 + 30 * 15e-6, 6)
