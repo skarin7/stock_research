@@ -14,6 +14,75 @@ def _flag(name: str, default: str = "false") -> bool:
     return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _csv_set(name: str, default: str = "") -> frozenset:
+    """Parse a comma-separated env var into an upper-cased frozenset (order-free)."""
+    raw = os.environ.get(name, default)
+    return frozenset(s.strip().upper() for s in raw.split(",") if s.strip())
+
+
+_PROFILE_FLAGS: dict[str, dict] = {
+    "research": {
+        "AGENT_MODE": "research",
+        "ENABLE_RESEARCH_AGENT": True,
+        "ENABLE_ANALYST_AGENT": True,
+        "ENABLE_DEBATE_AGENT": False,
+        "ENABLE_RISK_AGENT": False,
+        "ENABLE_PORTFOLIO_AGENT": False,
+        "ENABLE_TRADING_AGENT": False,
+        "ENABLE_MONITORING_AGENT": False,
+        "ENABLE_MEMORY_AGENT": True,
+        "ENABLE_LIVE_TRADING": False,
+        "GROWW_TRADING_ENABLED": False,
+        "ENABLE_AUTO_EXIT": False,
+    },
+    "paper": {
+        "AGENT_MODE": "paper",
+        "ENABLE_RESEARCH_AGENT": True,
+        "ENABLE_ANALYST_AGENT": True,
+        "ENABLE_DEBATE_AGENT": True,
+        "ENABLE_RISK_AGENT": True,
+        "ENABLE_PORTFOLIO_AGENT": True,
+        "ENABLE_TRADING_AGENT": True,
+        "ENABLE_MONITORING_AGENT": True,
+        "ENABLE_MEMORY_AGENT": True,
+        "ENABLE_LIVE_TRADING": False,
+        "GROWW_TRADING_ENABLED": False,
+        "ENABLE_AUTO_EXIT": False,
+    },
+    "live": {
+        "AGENT_MODE": "live",
+        "ENABLE_RESEARCH_AGENT": True,
+        "ENABLE_ANALYST_AGENT": True,
+        "ENABLE_DEBATE_AGENT": True,
+        "ENABLE_RISK_AGENT": True,
+        "ENABLE_PORTFOLIO_AGENT": True,
+        "ENABLE_TRADING_AGENT": True,
+        "ENABLE_MONITORING_AGENT": True,
+        "ENABLE_MEMORY_AGENT": True,
+        "ENABLE_LIVE_TRADING": True,
+        "GROWW_TRADING_ENABLED": True,
+        "ENABLE_AUTO_EXIT": True,
+    },
+}
+
+
+def _apply_profile(settings: "Settings") -> "Settings":
+    """Expand AGENT_PROFILE into individual flags. Raises ValueError for unknown profiles."""
+    import logging
+    profile = settings.AGENT_PROFILE.strip().lower()
+    if profile not in _PROFILE_FLAGS:
+        raise ValueError(
+            f"Unknown AGENT_PROFILE={profile!r}. Valid values: {', '.join(_PROFILE_FLAGS)}"
+        )
+    flags = _PROFILE_FLAGS[profile]
+    result = replace(settings, **flags)
+    agents_on = [k.removeprefix("ENABLE_").lower() for k, v in flags.items() if k.startswith("ENABLE_") and v]
+    logging.getLogger("agents.settings").info(
+        "profile=%s → %s agents ON", profile, "+".join(agents_on) if agents_on else "none"
+    )
+    return result
+
+
 def _default_signal_weights() -> dict:
     return {
         "news_sentiment": 0.20,
@@ -91,7 +160,8 @@ class Settings:
     OUTPUT_DIR: str = "output"
 
     # --- Multi-agent system ---
-    AGENT_MODE: str = "research"
+    AGENT_PROFILE: str = "research"      # research | paper | live
+    AGENT_MODE: str = "research"         # set by profile — do not set directly
     ENABLE_RESEARCH_AGENT: bool = True
     ENABLE_ANALYST_AGENT: bool = True
     ENABLE_DEBATE_AGENT: bool = False
@@ -106,6 +176,14 @@ class Settings:
     GROWW_TRADING_ENABLED: bool = False
     KILL_SWITCH: bool = False
     KILL_SWITCH_FILE: str = os.path.join("output", "kill_switch.flag")
+
+    # --- Auto-execution guardrails (protective exits only; never opens risk) ---
+    ENABLE_AUTO_EXIT: bool = False               # auto stop/target SELL-to-close
+    AUTO_TRADE_ALLOWLIST: frozenset = field(default_factory=frozenset)  # eligible symbols; empty = none
+    MAX_DAILY_NOTIONAL: float = 50000.0          # ₹ ceiling across all auto orders/day
+    MAX_ORDERS_PER_DAY: int = 10
+    AUTO_TRADE_WINDOW: str = "09:20-15:20"       # IST HH:MM-HH:MM; skip open/close minutes
+    AUTO_TRADE_LEDGER: str = os.path.join("output", "auto_trade_ledger.json")
 
     # --- Human-approval gate ---
     APPROVAL_TIMEOUT_SEC: int = 900
@@ -180,19 +258,15 @@ class Settings:
             INTRADAY_TOP_N=int(os.environ.get("INTRADAY_TOP_N", "10")),
             INTRADAY_HISTORY_DAYS=int(os.environ.get("INTRADAY_HISTORY_DAYS", "400")),
             OUTPUT_DIR=output_dir,
-            AGENT_MODE=os.environ.get("AGENT_MODE", "research").strip().lower(),
-            ENABLE_RESEARCH_AGENT=_flag("ENABLE_RESEARCH_AGENT", "true"),
-            ENABLE_ANALYST_AGENT=_flag("ENABLE_ANALYST_AGENT", "true"),
-            ENABLE_DEBATE_AGENT=_flag("ENABLE_DEBATE_AGENT", "false"),
-            ENABLE_RISK_AGENT=_flag("ENABLE_RISK_AGENT", "false"),
-            ENABLE_PORTFOLIO_AGENT=_flag("ENABLE_PORTFOLIO_AGENT", "false"),
-            ENABLE_TRADING_AGENT=_flag("ENABLE_TRADING_AGENT", "false"),
-            ENABLE_MONITORING_AGENT=_flag("ENABLE_MONITORING_AGENT", "false"),
-            ENABLE_MEMORY_AGENT=_flag("ENABLE_MEMORY_AGENT", "false"),
-            ENABLE_LIVE_TRADING=_flag("ENABLE_LIVE_TRADING", "false"),
-            GROWW_TRADING_ENABLED=_flag("GROWW_TRADING_ENABLED", "false"),
+            AGENT_PROFILE=os.environ.get("AGENT_PROFILE", "research").strip().lower(),
             KILL_SWITCH=_flag("KILL_SWITCH", "false"),
             KILL_SWITCH_FILE=os.path.join(output_dir, "kill_switch.flag"),
+            ENABLE_AUTO_EXIT=_flag("ENABLE_AUTO_EXIT", "false"),
+            AUTO_TRADE_ALLOWLIST=_csv_set("AUTO_TRADE_ALLOWLIST", ""),
+            MAX_DAILY_NOTIONAL=float(os.environ.get("MAX_DAILY_NOTIONAL", "50000")),
+            MAX_ORDERS_PER_DAY=int(os.environ.get("MAX_ORDERS_PER_DAY", "10")),
+            AUTO_TRADE_WINDOW=os.environ.get("AUTO_TRADE_WINDOW", "09:20-15:20"),
+            AUTO_TRADE_LEDGER=os.path.join(output_dir, "auto_trade_ledger.json"),
             APPROVAL_TIMEOUT_SEC=int(os.environ.get("APPROVAL_TIMEOUT_SEC", "900")),
             APPROVAL_CHANNEL=os.environ.get("APPROVAL_CHANNEL", "telegram"),
             ENABLE_CHAT_AGENT=_flag("ENABLE_CHAT_AGENT", "false"),
@@ -226,7 +300,7 @@ class Settings:
             METRICS_PORT=int(os.environ.get("METRICS_PORT", "9100")),
             PROMETHEUS_PUSHGATEWAY_URL=os.environ.get("PROMETHEUS_PUSHGATEWAY_URL", ""),
         )
-        return base
+        return _apply_profile(base)
 
 
-__all__ = ["Settings", "replace"]
+__all__ = ["Settings", "replace", "_PROFILE_FLAGS", "_apply_profile"]
