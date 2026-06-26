@@ -41,12 +41,12 @@ llm_provider = "anthropic"
 # openrouter_scoring_model = "deepseek/deepseek-chat"
 # openrouter_report_model  = "deepseek/deepseek-chat"
 
+# --- Chat agent: Telegram webhook Cloud Run Service (opt-in, scales to zero = no idle cost) ---
+# enable_chat_agent       = true
+# telegram_webhook_secret = "some-random-string"   # pick any secret, used to verify Telegram calls
+# After deploy, register the webhook once:
+#   python scripts/set_webhook.py https://<chat-service-url>/telegram/webhook
+
 # --- Monitoring: second job + market-hours scheduler (opt-in) ---
 # enable_monitoring = true
 # monitor_schedule  = "*/5 3-10 * * 1-5"   # ~every 5 min, 08:30-16:25 IST, Mon-Fri
-
-# Extra plain env (agent flags, risk limits) — e.g.:
-# extra_env = {
-#   ENABLE_DEBATE_AGENT = "true"
-#   MAX_DEBATE_ROUNDS   = "3"
-# }
