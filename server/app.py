@@ -103,6 +103,20 @@ async def webhook(request: Request):
     chat_id = str(chat_id_raw)
     logger.info("Incoming message from chat %s: %.80s…", chat_id, text)
 
+    # Trade approval commands resume a suspended live run (place/reject the order)
+    # instead of going to the research chat agent.
+    if text.startswith("/approve") or text.startswith("/reject"):
+        from agents.approval import handle_approval_command
+
+        try:
+            reply = handle_approval_command(text)
+        except Exception as e:
+            logger.error("approval command failed: %s", e)
+            reply = f"⚠️ Could not process approval: {e}"
+        if reply is not None:
+            _send(reply, chat_id)
+        return {"ok": True}
+
     # Placeholder so the user sees activity immediately.
     try:
         _send("🔎 Researching…", chat_id)

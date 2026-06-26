@@ -33,7 +33,7 @@ screener_screen_id   = ""
 screener_screen_slug = ""
 
 stock_universe = "nifty200"
-agent_mode     = "research"
+agent_profile  = "research"  # research | paper | live
 
 # --- LLM provider: "anthropic" (default) or "openrouter" (cheap models) ---
 llm_provider = "anthropic"

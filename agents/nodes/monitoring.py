@@ -8,8 +8,10 @@ emit Alerts, and notify on critical ones.
 Stop action:
   paper book (default): auto-exit the stopped position (credit cash, drop it,
     persist) — that's the point of a stop.
-  live (ENABLE_LIVE_TRADING): alert only — real exits must go through the broker
-    (deferred), so we never silently sell a real position here.
+  live (ENABLE_LIVE_TRADING): attempt a GUARDED protective exit via
+    agents.broker.auto_exit (allowlist + caps + window + broker reconcile). If
+    any guard refuses, we keep the position and alert a human (HITL fallback) —
+    we never sell a real position outside those guards.
 
 Price lookup is isolated behind ``_current_price`` so tests can monkeypatch it.
 """
@@ -75,13 +77,26 @@ def monitoring_node(state: AgentState) -> dict:
             continue
 
         if pos.stop_price and price <= pos.stop_price:
-            alerts.append(Alert(ticker=pos.ticker, kind="stop_triggered", severity="critical",
-                                message=f"price {price:.2f} ≤ stop {pos.stop_price:.2f}"))
-            if not live:                       # paper: auto-exit
+            if not live:                       # paper: simulate exit
+                alerts.append(Alert(ticker=pos.ticker, kind="stop_triggered", severity="critical",
+                                    message=f"price {price:.2f} ≤ stop {pos.stop_price:.2f}"))
                 book.cash = round(book.cash + pos.qty * price, 2)
                 exited += 1
                 continue
-            remaining.append(pos)              # live: alert only, keep position
+            # live: try a GUARDED protective exit; refusal → keep + alert human (HITL).
+            try:
+                from agents.broker.auto_exit import auto_exit, ExitRefused
+                oid, status = auto_exit(pos, price, reason="stop_triggered")
+                alerts.append(Alert(ticker=pos.ticker, kind="stop_triggered", severity="critical",
+                                    message=f"price {price:.2f} ≤ stop {pos.stop_price:.2f} — "
+                                            f"AUTO-EXITED → order {oid} ({status})"))
+                exited += 1
+                continue                       # drop from book on confirmed submit
+            except ExitRefused as e:
+                alerts.append(Alert(ticker=pos.ticker, kind="stop_triggered", severity="critical",
+                                    message=f"price {price:.2f} ≤ stop {pos.stop_price:.2f} — "
+                                            f"auto-exit refused ({e}); SELL manually"))
+                remaining.append(pos)
         else:
             remaining.append(pos)
 

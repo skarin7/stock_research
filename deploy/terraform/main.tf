@@ -9,7 +9,7 @@ locals {
 
   monitor_job_name = "${var.job_name}-monitor"
   monitor_run_uri  = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${local.monitor_job_name}:run"
-  monitor_env      = merge(local.env_vars, { ENABLE_MONITORING_AGENT = "true", AGENT_MODE = "monitor" })
+  monitor_env      = merge(local.env_vars, { AGENT_PROFILE = "paper" })
 
   # All env vars on the job. Empties are filtered out so optional creds don't
   # create blank env entries. The app reads these via config.py.
@@ -37,7 +37,7 @@ locals {
       SCREENER_SCREEN_ID   = var.screener_screen_id
       SCREENER_SCREEN_SLUG = var.screener_screen_slug
       STOCK_UNIVERSE       = var.stock_universe
-      AGENT_MODE           = var.agent_mode
+      AGENT_PROFILE        = var.agent_profile
       LLM_PROVIDER         = var.llm_provider
       OPENROUTER_API_KEY   = var.openrouter_api_key
       OPENROUTER_SCORING_MODEL = var.openrouter_scoring_model

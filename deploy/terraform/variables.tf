@@ -87,7 +87,7 @@ variable "stock_universe" {
   default = "nifty200"
 }
 
-variable "agent_mode" {
+variable "agent_profile" {
   type    = string
   default = "research" # research | paper | live
 }
