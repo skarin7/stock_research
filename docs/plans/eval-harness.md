@@ -1,6 +1,8 @@
 # Leak-free evaluation harness (design spec)
 
 > Status: **deferred** — reference spec. Implement as a separate effort after the chat intent router.
+>
+> Note: the **contamination guard** piece has been carved out and shipped — see `docs/plans/pit-contamination-guard.md`. The walk-forward engine/baselines/metrics below remain deferred.
 
 ## Context
 

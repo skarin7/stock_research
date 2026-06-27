@@ -96,6 +96,7 @@ def build_snapshot_rows(stocks: list[dict], scorecards: list[dict], news_map: di
             risk_flags=card.get("risk_flags", []),
             earnings_proximity=bool(card.get("earnings_proximity", False)),
             technicals=s.get("technicals") or {},
+            pit_safe=bool(s.get("pit_safe", True)),  # False on look-ahead historical re-runs
         )
         rows.append(row)
     return rows

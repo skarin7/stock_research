@@ -95,8 +95,23 @@ def _assign_sector_pe(stocks: list[dict]) -> None:
 
 
 def enrich_fundamentals(stocks: list[dict], ref_date: Optional[date] = None) -> list[dict]:
-    """Enrich stocks with yfinance fundamentals + earnings dates, then sector PE."""
+    """Enrich stocks with yfinance fundamentals + earnings dates, then sector PE.
+
+    PIT contamination guard: yfinance ``.info`` (PE/forwardPE/marketCap/sector) is
+    NOT point-in-time — it returns *today's* values regardless of ``ref_date``. So a
+    historical re-run (``--date <past>``) scores the past with future knowledge
+    (look-ahead bias). When ``ref_date`` is in the past we log a loud warning and
+    stamp every stock ``pit_safe=False`` so the output self-documents as
+    not-for-validation. See docs/plans/pit-contamination-guard.md.
+    """
     ref = ref_date or date.today()
+    pit_safe = ref >= date.today()
+    if not pit_safe:
+        logger.warning(
+            "Historical re-run (ref_date=%s < today): fundamentals/news are NOT "
+            "point-in-time — scores are look-ahead-biased, do NOT use for validation",
+            ref.isoformat(),
+        )
     enriched = []
     for i, stock in enumerate(stocks):
         sym = stock["symbol"]
@@ -133,6 +148,7 @@ def enrich_fundamentals(stocks: list[dict], ref_date: Optional[date] = None) -> 
         if tk is not None:
             stock.update(_earnings_dates(tk, ref))
 
+        stock["pit_safe"] = pit_safe
         enriched.append(stock)
 
     _assign_sector_pe(enriched)
