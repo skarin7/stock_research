@@ -21,6 +21,7 @@ from config import SETTINGS
 from agents.state import AgentState, RunStatus
 from agents.supervisor import audit_entry, budget_exceeded, kill_switch_active
 from observability import metrics
+from observability.chat_tracing import trace_node
 
 logger = logging.getLogger("agents")
 
@@ -47,16 +48,29 @@ def agent_node(name: str, enabled_flag: Optional[str] = None) -> Callable:
                 logger.info("[%s] disabled (%s=False) — skipping", name, enabled_flag)
                 return {"audit": [audit_entry(name, state.get("status"), state.get("status"), "skipped (disabled)")]}
 
+            run_id = state.get("run_id", "unknown")
+            input_summary = {
+                "stocks": len(state.get("stocks") or []),
+                "proposals": len(state.get("proposals") or []),
+            }
             start = time.monotonic()
-            try:
-                update = fn(state) or {}
-            except Exception as e:  # never crash the graph
-                logger.exception("[%s] failed: %s", name, e)
-                metrics.inc_node_error(name)
-                return {"status": RunStatus.FAILED,
-                        "audit": [audit_entry(name, state.get("status"), RunStatus.FAILED, str(e))]}
-            finally:
-                metrics.observe_node_latency(name, time.monotonic() - start)
+            with trace_node(name, run_id, input_summary) as span:
+                try:
+                    update = fn(state) or {}
+                except Exception as e:
+                    logger.exception("[%s] failed: %s", name, e)
+                    metrics.inc_node_error(name)
+                    return {"status": RunStatus.FAILED,
+                            "audit": [audit_entry(name, state.get("status"), RunStatus.FAILED, str(e))]}
+                finally:
+                    metrics.observe_node_latency(name, time.monotonic() - start)
+
+                span.set_output({
+                    "status": str(update.get("status", state.get("status", ""))),
+                    "stocks_out": len(update.get("stocks") or []),
+                    "proposals_out": len(update.get("proposals") or []),
+                    "scores_out": len(update.get("scores") or []),
+                })
 
             update.setdefault("audit", []).append(
                 audit_entry(name, state.get("status"), update.get("status", state.get("status")), "ok")
