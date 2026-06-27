@@ -86,6 +86,9 @@ def main():
         _monitor(run_id, report_date, RunStatus)
         return
 
+    from persistence.db import init_db
+    init_db()  # creates app tables (daily_snapshot, runs, etc.) if DATABASE_URL is set
+
     from agents.graph import build_graph
     logger.info("=== Agent run %s | mode=%s dry_run=%s ===", run_id, SETTINGS.AGENT_MODE, args.dry_run)
 

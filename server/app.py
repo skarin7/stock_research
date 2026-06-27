@@ -32,6 +32,12 @@ app = FastAPI(title="stock-intelligence chat webhook")
 _SEEN_UPDATES: deque[int] = deque(maxlen=100)
 
 
+@app.on_event("startup")
+async def _startup():
+    from persistence.db import init_db
+    init_db()  # creates app tables (daily_snapshot, runs, etc.) if DATABASE_URL is set
+
+
 def _settings():
     from config import SETTINGS
     return SETTINGS
