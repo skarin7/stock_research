@@ -78,6 +78,76 @@ def avg_volume(volumes: list[float], n: int) -> Optional[float]:
     return sum(window) / len(window)
 
 
+def ema(values: list[float], period: int) -> Optional[list[float]]:
+    """Exponential moving average series. Returns the EMA value per input bar
+    (seeded with an SMA over the first `period`), or None if too short.
+
+    The returned list is the same length as the tail it can compute: index i of
+    the result corresponds to ``values[period - 1 + i]``.
+    """
+    if len(values) < period:
+        return None
+    k = 2.0 / (period + 1)
+    seed = sum(values[:period]) / period
+    out = [seed]
+    for v in values[period:]:
+        out.append(v * k + out[-1] * (1 - k))
+    return out
+
+
+def macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9):
+    """MACD(fast, slow, signal). Returns {macd, signal, histogram} for the last
+    bar, or None if there is not enough data (needs ~slow + signal bars).
+
+    macd line = EMA(fast) - EMA(slow); signal = EMA(signal) of the macd line;
+    histogram = macd - signal.
+    """
+    fast_e = ema(closes, fast)
+    slow_e = ema(closes, slow)
+    if fast_e is None or slow_e is None:
+        return None
+    # Align the two EMA series on the same bars (slow starts later).
+    offset = slow - fast
+    fast_e = fast_e[offset:]
+    macd_line = [f - s for f, s in zip(fast_e, slow_e)]
+    sig = ema(macd_line, signal)
+    if sig is None:
+        return None
+    macd_val = macd_line[-1]
+    signal_val = sig[-1]
+    return {
+        "macd": round(macd_val, 4),
+        "signal": round(signal_val, 4),
+        "histogram": round(macd_val - signal_val, 4),
+    }
+
+
+def macd_cross(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Optional[str]:
+    """Detect a MACD/signal crossover on the most recent bar.
+
+    Returns "bullish" if the histogram flipped negative→positive on the last
+    bar, "bearish" if positive→negative, else None (no fresh cross / too short).
+    """
+    fast_e = ema(closes, fast)
+    slow_e = ema(closes, slow)
+    if fast_e is None or slow_e is None:
+        return None
+    offset = slow - fast
+    macd_line = [f - s for f, s in zip(fast_e[offset:], slow_e)]
+    sig = ema(macd_line, signal)
+    if sig is None or len(sig) < 2:
+        return None
+    # Histogram aligned to the signal series tail.
+    macd_tail = macd_line[-len(sig):]
+    hist_prev = macd_tail[-2] - sig[-2]
+    hist_now = macd_tail[-1] - sig[-1]
+    if hist_prev <= 0 < hist_now:
+        return "bullish"
+    if hist_prev >= 0 > hist_now:
+        return "bearish"
+    return None
+
+
 def compute_metrics(candles: list[Candle]) -> MetricsDict:
     """Derive the technical inputs the scorer needs from a candle list.
 

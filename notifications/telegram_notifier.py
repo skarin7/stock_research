@@ -117,6 +117,20 @@ def _build_stock_messages(top_stocks: list[dict]) -> list[str]:
             f"{e('value')}Val · {e('bulk_deals')}Bulk"
         )
 
+        # Technicals line — MACD cross / 20d breakout / RSI (only when present)
+        tech = s.get("technicals") or {}
+        tech_parts = []
+        if tech.get("macd_cross") == "bullish":
+            tech_parts.append("📈 MACD↑")
+        elif tech.get("macd_cross") == "bearish":
+            tech_parts.append("📉 MACD↓")
+        if tech.get("breakout_20d"):
+            tech_parts.append("🚀 20d breakout")
+        if tech.get("rsi14") is not None:
+            tech_parts.append(f"RSI {tech['rsi14']:.0f}")
+        if tech_parts:
+            card.append(" · ".join(tech_parts))
+
         # Rationale
         if rationale:
             card.append(f"📝 {rationale[:160]}{'…' if len(rationale) > 160 else ''}")
@@ -167,6 +181,18 @@ _LEGEND = """\
 <b>⚠️ flags</b> — Earnings proximity or known risks
 
 <i>Scores are AI-generated (Claude Haiku). Not financial advice.</i>"""
+
+
+def send_pulse_alert(text: str) -> bool:
+    """Send a market-pulse shock alert. No-op (returns False) if Telegram is
+    unconfigured. Already-HTML text; chunked to stay under the Telegram limit."""
+    if not SETTINGS.TELEGRAM_BOT_TOKEN or not SETTINGS.TELEGRAM_CHAT_ID:
+        logger.info("Telegram not configured — skipping pulse alert")
+        return False
+    ok = True
+    for i in range(0, len(text), _MAX_MSG):
+        ok = _send_text(SETTINGS.TELEGRAM_CHAT_ID, text[i:i + _MAX_MSG]) and ok
+    return ok
 
 
 def send_intraday_watchlist(alert_text: str) -> bool:

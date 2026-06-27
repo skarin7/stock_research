@@ -36,7 +36,7 @@ _PROMOTED_KEYS = {
     "market_cap_cr", "debt_equity", "delivery_pct", "volume_ratio",
     "ohlc_5d", "ohlc_10d", "ltp", "groww_volume", "bulk_deals",
     "next_earnings_date", "last_earnings_date", "days_to_earnings",
-    "no_data",
+    "no_data", "technicals",
 }
 # Legacy keys that are not valid Python identifiers (handled explicitly).
 _LEGACY_ALIASES = {"week52_high": "52w_high", "week52_low": "52w_low"}
@@ -68,6 +68,7 @@ class EnrichedStock(BaseModel):
     last_earnings_date: Optional[str] = None
     days_to_earnings: Optional[int] = None
     no_data: bool = False
+    technicals: dict[str, Any] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod

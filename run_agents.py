@@ -29,7 +29,7 @@ logger = logging.getLogger("run_agents")
 
 def parse_args():
     p = argparse.ArgumentParser(description="Stock Intelligence — multi-agent runner")
-    p.add_argument("--mode", choices=["research", "paper", "live", "monitor"], default=None,
+    p.add_argument("--mode", choices=["research", "paper", "live", "monitor", "pulse"], default=None,
                    help="Override AGENT_MODE")
     p.add_argument("--date", help="Trading date (YYYY-MM-DD); defaults to today")
     p.add_argument("--dry-run", action="store_true", help="Limit to DRY_RUN_STOCK_COUNT stocks")
@@ -84,6 +84,10 @@ def main():
     # full research→…→trade pipeline.
     if SETTINGS.AGENT_MODE == "monitor":
         _monitor(run_id, report_date, RunStatus)
+        return
+
+    if SETTINGS.AGENT_MODE == "pulse":
+        _pulse(run_id, report_date, RunStatus)
         return
 
     from persistence.db import init_db
@@ -154,6 +158,26 @@ def _monitor(run_id: str, report_date, RunStatus) -> None:
     push_metrics(job="stock-intelligence-monitor")
     alerts = final.get("alerts") or []
     logger.info("=== Monitor %s done → %s (%d alert(s)) ===",
+                run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))
+
+
+def _pulse(run_id: str, report_date, RunStatus) -> None:
+    from config import SETTINGS
+
+    from agents.graph import build_pulse_graph
+    from observability.metrics import start_metrics_server
+
+    start_metrics_server()
+    logger.info("=== Pulse run %s ===", run_id)
+    graph = build_pulse_graph()
+    initial = {"run_id": run_id, "report_date": report_date.isoformat(), "mode": "pulse",
+               "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
+    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": SETTINGS.MAX_GRAPH_STEPS}
+    final = graph.invoke(initial, cfg)
+    from observability.metrics import push_metrics
+    push_metrics(job="stock-intelligence-pulse")
+    alerts = final.get("alerts") or []
+    logger.info("=== Pulse %s done → %s (%d alert(s)) ===",
                 run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))
 
 
