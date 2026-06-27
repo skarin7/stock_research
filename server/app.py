@@ -65,6 +65,36 @@ def _send(text: str, chat_id: str) -> None:
         _send_text(chat_id, chunk)
 
 
+def _handle_callback(cb: dict, s) -> dict:
+    """Process an inline approve/reject button tap (deterministic, no LLM/ReAct)."""
+    cb_id = cb.get("id", "")
+    data = cb.get("data", "") or ""
+    chat_id_raw = ((cb.get("message") or {}).get("chat") or {}).get("id")
+
+    allowed = str(getattr(s, "TELEGRAM_CHAT_ID", ""))
+    if allowed and str(chat_id_raw) != allowed:
+        logger.debug("Dropping callback from chat %s (not in allowlist)", chat_id_raw)
+        return {"ok": True}
+
+    from agents.approval import handle_callback
+    from notifications.telegram_notifier import answer_callback
+
+    try:
+        reply = handle_callback(data)
+    except Exception as e:
+        logger.error("callback handling failed: %s", e)
+        reply = f"⚠️ Could not process that: {e}"
+
+    try:
+        answer_callback(cb_id, "Working…")   # clears the client spinner
+    except Exception as e:
+        logger.warning("answerCallbackQuery failed: %s", e)
+
+    if reply and chat_id_raw:
+        _send(reply, str(chat_id_raw))
+    return {"ok": True}
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
@@ -84,6 +114,10 @@ async def webhook(request: Request):
         body: dict[str, Any] = await request.json()
     except Exception:
         return {"ok": True}  # malformed body — drop
+
+    # Inline-button taps arrive as callback_query (no message.text).
+    if body.get("callback_query"):
+        return _handle_callback(body["callback_query"], s)
 
     update_id: int | None = body.get("update_id")
     message: dict = body.get("message") or {}
@@ -109,18 +143,19 @@ async def webhook(request: Request):
     chat_id = str(chat_id_raw)
     logger.info("Incoming message from chat %s: %.80s…", chat_id, text)
 
-    # Trade approval commands resume a suspended live run (place/reject the order)
-    # instead of going to the research chat agent.
-    if text.startswith("/approve") or text.startswith("/reject"):
-        from agents.approval import handle_approval_command
+    # Tier 1 — HITL approval (deterministic, NO LLM / NO ReAct). Catches the
+    # explicit /approve|/reject command AND a bare "approve"/"reject" reply when
+    # an approval is pending for this chat. Returns None (→ chat agent) only when
+    # there's nothing pending or the message isn't a decision.
+    from agents.approval import route_approval
 
-        try:
-            reply = handle_approval_command(text)
-        except Exception as e:
-            logger.error("approval command failed: %s", e)
-            reply = f"⚠️ Could not process approval: {e}"
-        if reply is not None:
-            _send(reply, chat_id)
+    try:
+        reply = route_approval(text)
+    except Exception as e:
+        logger.error("approval routing failed: %s", e)
+        reply = f"⚠️ Could not process approval: {e}"
+    if reply is not None:
+        _send(reply, chat_id)
         return {"ok": True}
 
     # Placeholder so the user sees activity immediately.

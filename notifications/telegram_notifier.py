@@ -54,6 +54,25 @@ def send_text(chat_id: str, text: str) -> bool:
 _send_text = send_text
 
 
+def send_buttons(chat_id: str, text: str, keyboard: list[list[dict]]) -> bool:
+    """Send a message with an inline keyboard. ``keyboard`` is a list of button
+    rows, each button {"text": str, "callback_data": str}."""
+    import json
+
+    return _post("sendMessage", data={
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
+        "reply_markup": json.dumps({"inline_keyboard": keyboard}),
+    })
+
+
+def answer_callback(callback_query_id: str, text: str = "") -> bool:
+    """Acknowledge a button tap (clears the client-side spinner)."""
+    return _post("answerCallbackQuery", data={"callback_query_id": callback_query_id, "text": text})
+
+
 def _sentiment_emoji(signals: dict, key: str) -> str:
     score = signals.get(key, {}).get("score", 5)
     if score >= BULLISH_SCORE_THRESHOLD:

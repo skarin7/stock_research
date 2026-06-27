@@ -135,6 +135,22 @@ class GrowwTokenRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class IntentEmbeddingRow(Base):
+    """Cached embeddings of the chat intent exemplar bank (master data).
+
+    One row per (exemplar_hash, model). ``labels`` and ``vectors`` are parallel
+    JSON arrays. The master intents change rarely, so this is embedded once and
+    re-embedded only when the exemplar set or model changes (→ new hash)."""
+
+    __tablename__ = "intent_embeddings"
+
+    exemplar_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    model: Mapped[str] = mapped_column(String, primary_key=True)
+    labels: Mapped[list] = mapped_column(JSON)
+    vectors: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MemoryRow(Base):
     __tablename__ = "memory"
 

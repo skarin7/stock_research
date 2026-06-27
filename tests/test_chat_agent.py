@@ -30,6 +30,15 @@ _cfg = types.SimpleNamespace(
 sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
 
 
+@pytest.fixture(autouse=True)
+def _bypass_router(monkeypatch):
+    """The intent router is core (always on); these tests target the agent path,
+    so route every message to a research fall-through and stub intent logging."""
+    monkeypatch.setattr("agents.chat.intent.route_intent",
+                        lambda t: {"intent": "research", "confidence": 0.9, "route": "semantic"})
+    monkeypatch.setattr("agents.chat.agent._record_intent", lambda *a, **kw: None)
+
+
 def _fake_agent(messages):
     """Minimal agent-like namespace: invoke returns a messages dict."""
     def invoke(input_dict, cfg=None):
