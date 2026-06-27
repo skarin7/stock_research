@@ -20,6 +20,8 @@ from agents.chat.intent_exemplars import ALL_INTENTS, RESEARCH_INTENTS
 
 logger = logging.getLogger("agents.chat.intent")
 
+from observability.chat_tracing import trace_intent
+
 # Canned replies for intents that never need the ReAct loop.
 CANNED: dict[str, str] = {
     "greeting": (
@@ -88,15 +90,23 @@ def route_intent(text: str) -> dict:
     threshold = float(getattr(SETTINGS, "CHAT_SEMANTIC_THRESHOLD", 0.55))
     from agents.chat import embedder
 
-    # Self-gate: skip the semantic tier cleanly when no embedding backend is
-    # configured (avoids a per-message error → straight to the LLM classifier).
     if embedder.available():
         try:
             intent, sim = embedder.nearest_intent(text)
             if sim >= threshold:
-                return {"intent": intent, "confidence": round(sim, 3), "route": "semantic"}
+                verdict = {"intent": intent, "confidence": round(sim, 3), "route": "semantic"}
+                trace_intent(route="semantic", intent=intent, score=sim)
+                return verdict
             logger.debug("semantic sim %.3f < %.2f → LLM fallback", sim, threshold)
+            trace_intent(route="llm_fallback", intent="", score=sim)
         except Exception as e:
             logger.warning("semantic router error (%s) — LLM fallback", e)
 
-    return classify_intent_llm(text)
+    verdict = classify_intent_llm(text)
+    trace_intent(
+        route=verdict.get("route", "llm"),
+        intent=verdict.get("intent", ""),
+        score=0.0,
+        confidence=verdict.get("confidence"),
+    )
+    return verdict
