@@ -34,8 +34,10 @@ _SEEN_UPDATES: deque[int] = deque(maxlen=100)
 
 @app.on_event("startup")
 async def _startup():
+    from observability.logging_config import setup_logging
+    setup_logging()
     from persistence.db import init_db
-    init_db()  # creates app tables (daily_snapshot, runs, etc.) if DATABASE_URL is set
+    init_db()
 
 
 def _settings():
@@ -141,7 +143,7 @@ async def webhook(request: Request):
         _SEEN_UPDATES.append(update_id)
 
     chat_id = str(chat_id_raw)
-    logger.info("Incoming message from chat %s: %.80s…", chat_id, text)
+    logger.info("msg_received", extra={"chat_id": chat_id, "text": text, "update_id": update_id})
 
     # Tier 1 — HITL approval (deterministic, NO LLM / NO ReAct). Catches the
     # explicit /approve|/reject command AND a bare "approve"/"reject" reply when
@@ -152,24 +154,32 @@ async def webhook(request: Request):
     try:
         reply = route_approval(text)
     except Exception as e:
-        logger.error("approval routing failed: %s", e)
+        logger.error("approval_routing_failed", extra={"error": str(e), "chat_id": chat_id})
         reply = f"⚠️ Could not process approval: {e}"
     if reply is not None:
+        logger.info("approval_routed", extra={"chat_id": chat_id, "reply_len": len(reply)})
         _send(reply, chat_id)
         return {"ok": True}
 
-    # Placeholder so the user sees activity immediately.
     try:
         _send("🔎 Researching…", chat_id)
     except Exception as e:
-        logger.warning("Could not send placeholder: %s", e)
+        logger.warning("placeholder_send_failed", extra={"error": str(e)})
 
+    import time as _time
     from agents.chat.agent import run_turn
 
+    t0 = _time.monotonic()
     reply = run_turn(chat_id, text)
+    duration_ms = round((_time.monotonic() - t0) * 1000)
+    logger.info("turn_complete", extra={
+        "chat_id": chat_id,
+        "duration_ms": duration_ms,
+        "reply_length": len(reply),
+    })
     try:
         _send(reply, chat_id)
     except Exception as e:
-        logger.error("Could not send reply: %s", e)
+        logger.error("reply_send_failed", extra={"error": str(e), "chat_id": chat_id})
 
     return {"ok": True}
