@@ -148,6 +148,7 @@ class Settings:
     GROWW_TOTP_SECRET: str = ""
     GROWW_API_KEY: str = ""
     GROWW_API_SECRET: str = ""
+    GROWW_TOKEN_ENC_KEY: str = ""  # passphrase to encrypt the cached access token at rest (Fernet+PBKDF2). Empty = plaintext.
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
@@ -291,6 +292,7 @@ class Settings:
             GROWW_TOTP_SECRET=os.environ.get("GROWW_TOTP_SECRET", ""),
             GROWW_API_KEY=os.environ.get("GROWW_API_KEY", ""),
             GROWW_API_SECRET=os.environ.get("GROWW_API_SECRET", ""),
+            GROWW_TOKEN_ENC_KEY=os.environ.get("GROWW_TOKEN_ENC_KEY", ""),
             TELEGRAM_BOT_TOKEN=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
             TELEGRAM_CHAT_ID=os.environ.get("TELEGRAM_CHAT_ID", ""),
             STOCK_UNIVERSE=os.environ.get("STOCK_UNIVERSE", "nifty200"),

@@ -211,6 +211,13 @@ variable "groww_totp_secret" {
   default   = ""
 }
 
+variable "groww_token_enc_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Passphrase to encrypt the cached Groww access token at rest (Fernet+PBKDF2). Empty = stored plaintext."
+}
+
 variable "telegram_bot_token" {
   type      = string
   sensitive = true

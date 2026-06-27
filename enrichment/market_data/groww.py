@@ -173,16 +173,50 @@ def _token_expiry_epoch() -> float:
     return expiry_ist.timestamp()
 
 
+def _resolve_token() -> str:
+    """Resolve an access token, preferring the cross-process DB cache.
+
+    Order: shared DB token (no login) → pre-baked env → TOTP/API login. On a
+    fresh login the token is written back to the DB so concurrent / subsequent
+    Cloud Run cold starts reuse it instead of re-hitting Groww's rate-limited
+    access-token endpoint. The DB row expires at 6 AM IST (daily).
+    """
+    from datetime import timezone
+
+    try:
+        from persistence import store
+        cached = store.load_groww_token()
+        if cached:
+            logger.info("Groww: reusing cached access token from DB (no re-login)")
+            return cached
+    except Exception as e:
+        logger.warning("Groww token cache lookup failed: %s — generating fresh", e)
+
+    token = _get_access_token()
+
+    try:
+        from persistence import store
+        expires_at = datetime.fromtimestamp(_token_expiry_epoch(), tz=timezone.utc)
+        store.save_groww_token(token, expires_at)
+    except Exception as e:
+        logger.warning("Groww token cache write failed: %s", e)
+
+    return token
+
+
 def default_client():
     """Return an authenticated Groww client, refreshing automatically after 6 AM IST.
 
     TOTP credentials make this fully automatic — no daily manual token copy needed.
     Pre-baked GROWW_ACCESS_TOKEN overrides (manual fallback when TOTP isn't set up).
+    A shared DB token cache (when DATABASE_URL is set) makes login happen at most
+    once per day across all processes — without it scale-to-zero cold starts
+    re-login every time and exhaust Groww's access-token rate limit.
     Reused by the broker layer for order placement.
     """
     now = time.time()
     if _client_cache["client"] is None or now >= _client_cache["expires_at"]:
-        token = _get_access_token()
+        token = _resolve_token()
         _client_cache["client"] = _sdk()(token)
         _client_cache["expires_at"] = _token_expiry_epoch()
         logger.info(

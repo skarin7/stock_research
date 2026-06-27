@@ -36,6 +36,7 @@ locals {
       GROWW_ACCESS_TOKEN         = var.groww_access_token
       GROWW_TOTP_TOKEN           = var.groww_totp_token
       GROWW_TOTP_SECRET          = var.groww_totp_secret
+      GROWW_TOKEN_ENC_KEY        = var.groww_token_enc_key
       TELEGRAM_BOT_TOKEN         = var.telegram_bot_token
       TELEGRAM_CHAT_ID           = var.telegram_chat_id
       SCREENER_EMAIL             = var.screener_email

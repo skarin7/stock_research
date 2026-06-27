@@ -117,6 +117,24 @@ class DailySnapshotRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class GrowwTokenRow(Base):
+    """Cross-process cache for the daily Groww access token.
+
+    Scale-to-zero Cloud Run regenerates a fresh TOTP login on every cold start;
+    Groww rate-limits its access-token endpoint (meant ~once/day). This single
+    row lets all processes share one token until it expires at 6 AM IST, so a
+    burst of cold starts triggers at most one login. ``expires_at`` is the daily
+    expiry boundary — ``load_groww_token`` drops the row once it's past.
+    """
+
+    __tablename__ = "groww_token"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)  # "default"
+    token: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)      # next 6 AM IST (UTC-naive)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MemoryRow(Base):
     __tablename__ = "memory"
 

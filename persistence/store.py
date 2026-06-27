@@ -188,6 +188,124 @@ def save_pulse_state(state: dict) -> None:
     p.write_text(json.dumps(state, indent=2, default=str))
 
 
+# ── Groww access-token cache (cross-process; survives Cloud Run cold starts) ───
+#
+# Scale-to-zero regenerates a fresh TOTP login per cold start and Groww
+# rate-limits its access-token endpoint. One shared DB row lets every process
+# reuse the same token until it expires at 6 AM IST (daily). No-op without a DB
+# (local dev relies on the in-process client cache instead).
+
+_GROWW_TOKEN_KEY = "default"
+_ENC_PREFIX = "enc:v1:"  # marks a Fernet-encrypted payload; absent ⇒ legacy plaintext
+
+
+def _derive_fernet_key(passphrase: str, salt: bytes):
+    """Derive a urlsafe-base64 Fernet key from passphrase + salt via PBKDF2-HMAC-SHA256."""
+    import base64
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=200_000)
+    return base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
+
+
+def _encrypt_token(token: str) -> str:
+    """Encrypt the token with a per-write random salt. Returns plaintext unchanged
+    when GROWW_TOKEN_ENC_KEY is unset or cryptography is unavailable."""
+    passphrase = getattr(SETTINGS, "GROWW_TOKEN_ENC_KEY", "")
+    if not passphrase:
+        return token
+    try:
+        import base64
+        import os
+
+        from cryptography.fernet import Fernet
+
+        salt = os.urandom(16)
+        blob = salt + Fernet(_derive_fernet_key(passphrase, salt)).encrypt(token.encode())
+        return _ENC_PREFIX + base64.urlsafe_b64encode(blob).decode()
+    except Exception as e:
+        logger.warning("Groww token encryption failed (%s) — storing plaintext", e)
+        return token
+
+
+def _decrypt_token(stored: str) -> str | None:
+    """Inverse of _encrypt_token. Plaintext (no prefix) passes through. Returns
+    None when an encrypted blob can't be decrypted (missing key / wrong key)."""
+    if not stored.startswith(_ENC_PREFIX):
+        return stored  # legacy plaintext row
+    passphrase = getattr(SETTINGS, "GROWW_TOKEN_ENC_KEY", "")
+    if not passphrase:
+        logger.warning("Groww token is encrypted but GROWW_TOKEN_ENC_KEY is unset — cannot decrypt")
+        return None
+    try:
+        import base64
+
+        from cryptography.fernet import Fernet
+
+        blob = base64.urlsafe_b64decode(stored[len(_ENC_PREFIX):].encode())
+        salt, ct = blob[:16], blob[16:]
+        return Fernet(_derive_fernet_key(passphrase, salt)).decrypt(ct).decode()
+    except Exception as e:
+        logger.warning("Groww token decryption failed (%s) — forcing re-login", e)
+        return None
+
+
+def save_groww_token(token: str, expires_at: datetime) -> None:
+    """Upsert the shared Groww access token (encrypted at rest when a key is set).
+    expires_at is stored UTC-naive."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return
+    from persistence.db import session_scope
+    from persistence.models import GrowwTokenRow
+
+    exp = expires_at.astimezone(timezone.utc).replace(tzinfo=None) if expires_at.tzinfo else expires_at
+    stored = _encrypt_token(token)
+    try:
+        with session_scope() as s:
+            row = s.get(GrowwTokenRow, _GROWW_TOKEN_KEY)
+            if row is None:
+                s.add(GrowwTokenRow(key=_GROWW_TOKEN_KEY, token=stored, expires_at=exp,
+                                    created_at=datetime.utcnow()))
+            else:
+                row.token = stored
+                row.expires_at = exp
+                row.created_at = datetime.utcnow()
+        logger.info("Groww token cached to DB (encrypted=%s, expires %s UTC)",
+                    stored.startswith(_ENC_PREFIX), exp)
+    except Exception as e:
+        logger.warning("Groww token cache write failed (%s)", e)
+
+
+def load_groww_token() -> str | None:
+    """Return the cached Groww token if present, unexpired, and decryptable; else None.
+
+    Past expiry (or on a decrypt failure) the row is deleted (daily expiry),
+    forcing a one-time re-login.
+    """
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    from persistence.db import session_scope
+    from persistence.models import GrowwTokenRow
+
+    try:
+        with session_scope() as s:
+            row = s.get(GrowwTokenRow, _GROWW_TOKEN_KEY)
+            if row is None:
+                return None
+            if datetime.utcnow() >= row.expires_at:
+                s.delete(row)  # daily expiry — drop stale row, caller re-logins
+                return None
+            token = _decrypt_token(row.token)
+            if token is None:
+                s.delete(row)  # undecryptable — drop so a fresh login replaces it
+            return token
+    except Exception as e:
+        logger.warning("Groww token cache read failed (%s)", e)
+        return None
+
+
 # ── long-term memory (append-only jsonl; query by namespace) ───────────────────
 
 def record_memory(namespace: str, key: str, value: dict) -> None:
