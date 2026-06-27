@@ -83,6 +83,7 @@ class TestApprovalRouting:
 # ── tier 2 → tier 3 routing in route_intent ────────────────────────────────────
 class TestRouteIntent:
     def test_semantic_hit_skips_llm(self, monkeypatch):
+        monkeypatch.setattr("agents.chat.embedder.available", lambda: True)
         monkeypatch.setattr("agents.chat.embedder.nearest_intent", lambda t: ("research", 0.91))
 
         def _boom(text):
@@ -93,6 +94,7 @@ class TestRouteIntent:
         assert out["intent"] == "research" and out["route"] == "semantic"
 
     def test_low_similarity_falls_back_to_llm(self, monkeypatch):
+        monkeypatch.setattr("agents.chat.embedder.available", lambda: True)
         monkeypatch.setattr("agents.chat.embedder.nearest_intent", lambda t: ("research", 0.10))
         monkeypatch.setattr(intent_mod, "classify_intent_llm",
                             lambda t: {"intent": "macro", "confidence": 0.8, "route": "llm"})
@@ -100,6 +102,8 @@ class TestRouteIntent:
         assert out["intent"] == "macro" and out["route"] == "llm"
 
     def test_embedder_error_falls_back_to_llm(self, monkeypatch):
+        monkeypatch.setattr("agents.chat.embedder.available", lambda: True)
+
         def _raise(t):
             raise RuntimeError("embed backend down")
 
@@ -107,6 +111,17 @@ class TestRouteIntent:
         monkeypatch.setattr(intent_mod, "classify_intent_llm",
                             lambda t: {"intent": "ambiguous", "confidence": 0.0, "route": "llm"})
         assert intent_mod.route_intent("???")["route"] == "llm"
+
+    def test_no_embedding_backend_skips_semantic(self, monkeypatch):
+        monkeypatch.setattr("agents.chat.embedder.available", lambda: False)
+
+        def _boom(t):
+            raise AssertionError("must not embed when no backend configured")
+
+        monkeypatch.setattr("agents.chat.embedder.nearest_intent", _boom)
+        monkeypatch.setattr(intent_mod, "classify_intent_llm",
+                            lambda t: {"intent": "research", "confidence": 0.8, "route": "llm"})
+        assert intent_mod.route_intent("anything")["route"] == "llm"
 
 
 # ── tier 3 classifier ───────────────────────────────────────────────────────────
@@ -177,7 +192,7 @@ def wired(monkeypatch):
     monkeypatch.setattr(agent_mod, "_record_intent", lambda *a, **k: None)
     monkeypatch.setattr(agent_mod, "_record_turn", lambda *a, **k: None)
     monkeypatch.setattr(agent_mod, "SETTINGS",
-                        types.SimpleNamespace(ENABLE_CHAT_INTENT_ROUTER=True, MAX_CHAT_TOOL_CALLS=8))
+                        types.SimpleNamespace(MAX_CHAT_TOOL_CALLS=8))
 
     called = {"agent": 0, "last_input": None}
 

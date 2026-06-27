@@ -20,9 +20,9 @@
   - `route_intent(text) -> {intent, confidence, route}`: tier 2 `embed(text)` → cosine vs bank → `(best_intent, sim)`; if `sim >= CHAT_SEMANTIC_THRESHOLD` return it (`route="semantic"`); else tier 3 `classify_intent_llm(text)` (`route="llm"`); on any embedder error skip to tier 3.
   - `classify_intent_llm(text)` — one cheap Haiku call (`get_chat_model(model=CHAT_INTENT_MODEL, max_tokens=120)`) → JSON `{intent, confidence}`; `< CHAT_INTENT_MIN_CONFIDENCE` → `ambiguous`.
   - `CANNED` replies + `is_research_intent()` helper.
-- **Modify** `agents/chat/agent.py` `run_turn` — after the kill-switch check, when `ENABLE_CHAT_INTENT_ROUTER`: `route_intent(text)` → branch (canned / clarifying / fall-through-with-hint), `store.record_memory("chat_intent", chat_id, {intent, route, sim})`. Any exception in routing → log + proceed to the agent (fail-open).
+- **Modify** `agents/chat/agent.py` `run_turn` — after the kill-switch check (router is core, always on): `route_intent(text)` → branch (canned / clarifying / fall-through-with-hint), `store.record_memory("chat_intent", chat_id, {intent, route, sim})`. Any exception in routing → log + proceed to the agent (fail-open).
 - **Add** `persistence/models.py` `IntentEmbeddingRow` (PK `exemplar_hash`+`model`, JSON `labels`/`vectors`) + `persistence/store.py` `load_intent_bank`/`save_intent_bank` (no-op without `DATABASE_URL`).
-- **Modify** `settings.py` — `ENABLE_CHAT_INTENT_ROUTER` (True), `CHAT_SEMANTIC_THRESHOLD` (0.55), `CHAT_EMBED_MODEL` (`openai/text-embedding-3-small`), `CHAT_INTENT_MODEL` (`SCORING_MODEL`), `CHAT_INTENT_MIN_CONFIDENCE` (0.6).
+- **Modify** `settings.py` — `CHAT_SEMANTIC_THRESHOLD` (0.55), `CHAT_EMBED_MODEL` (`openai/text-embedding-3-small`), `CHAT_INTENT_MODEL` (`SCORING_MODEL`), `CHAT_INTENT_MIN_CONFIDENCE` (0.6). The router is **core (no enable flag)** — `embedder.available()` self-gates the semantic tier on `OPENROUTER_API_KEY`.
 - **Modify** `requirements.txt` — pin `numpy` (cosine math; embeddings reuse the existing `openai` client → no new heavy dep).
 - **Create** `tests/test_chat_intent.py` — fully mocked embedder (deterministic vectors) + mocked LLM; assert: a phrase near an exemplar routes by **cosine with NO LLM call**; a far phrase falls to the **LLM fallback**; greeting/out_of_scope/trade_intent short-circuit (ReAct **not** invoked); ambiguous → clarifying question; embedder raising → LLM fallback; both unavailable → ReAct fall-through (fail-open); intent record written.
 - **Modify** `CLAUDE.md` — document the tiered router under the chat-agent section.
@@ -31,7 +31,7 @@
 
 - **Cost:** common case = **1 small embedding API call (~ms, ~\$0.00001), zero chat-LLM**. The chat LLM classifier fires only on novel phrasings below threshold. Bank embedded once into PG.
 - **Reuse** `get_chat_model` (`agents/llm.py`) for the fallback, the `openai` client + `OPENROUTER_*` for embeddings, and `store.record_memory` for analytics.
-- ReAct agent + 9 tools **unchanged** — this is a front door. `ENABLE_CHAT_INTENT_ROUTER=false` restores exact current behavior.
+- ReAct agent + 9 tools **unchanged** — this is a front door, core (no enable flag). Self-gates: no `OPENROUTER_API_KEY` → semantic tier skipped → LLM classifier.
 - Cold-start: the bank is read from Postgres (one query); embedding only happens on first-ever build or after the exemplar set changes (one-off). No DB → embed once per process.
 - **Threshold tuning:** `CHAT_SEMANTIC_THRESHOLD` trades router coverage vs LLM-fallback rate; start 0.55, tune from the logged `sim` distribution.
 
@@ -41,5 +41,5 @@
 
 ## Verification
 1. **Unit:** `python -m pytest tests/test_chat_intent.py -v` (assertions above) — the **no-LLM-on-semantic-hit** assertion is the key one.
-2. **Regression:** `python -m pytest tests/ -v` green; `ENABLE_CHAT_INTENT_ROUTER=false` → existing chat behavior unchanged.
+2. **Regression:** `python -m pytest tests/ -v` green; with no `OPENROUTER_API_KEY` the router self-gates to the LLM classifier (no per-message embed error).
 3. **Local smoke:** `python scripts/run_chat_local.py` — "hi" (canned, no embed-miss/LLM in logs), "when's a good time to buy INFY?" (semantic→entry_exit, timing runs), "buy 10 TCS" (canned), a nonsense one-word message (LLM fallback → clarifying question). Check logs show `route=semantic` for the common cases.

@@ -143,9 +143,10 @@ def run_turn(chat_id: str, text: str) -> str:
     text = (text or "").strip()
 
     # Tiered intent router (semantic cosine → LLM fallback) in front of the
-    # expensive ReAct loop. Fail-open: any error → fall through to the agent.
+    # expensive ReAct loop — a core front door, self-gating on embedding
+    # availability. Fail-open: any error → fall through to the agent.
     hint = ""
-    if getattr(SETTINGS, "ENABLE_CHAT_INTENT_ROUTER", False) and text:
+    if text:
         try:
             from agents.chat.intent import (
                 CANNED, clarify_reply, is_research_intent, route_intent,

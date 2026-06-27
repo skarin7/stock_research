@@ -86,14 +86,17 @@ def classify_intent_llm(text: str) -> dict:
 def route_intent(text: str) -> dict:
     """Return {intent, confidence, route}. Tier 2 semantic → tier 3 LLM fallback."""
     threshold = float(getattr(SETTINGS, "CHAT_SEMANTIC_THRESHOLD", 0.55))
-    try:
-        from agents.chat.embedder import nearest_intent
+    from agents.chat import embedder
 
-        intent, sim = nearest_intent(text)
-        if sim >= threshold:
-            return {"intent": intent, "confidence": round(sim, 3), "route": "semantic"}
-        logger.debug("semantic sim %.3f < %.2f → LLM fallback", sim, threshold)
-    except Exception as e:
-        logger.warning("semantic router unavailable (%s) — LLM fallback", e)
+    # Self-gate: skip the semantic tier cleanly when no embedding backend is
+    # configured (avoids a per-message error → straight to the LLM classifier).
+    if embedder.available():
+        try:
+            intent, sim = embedder.nearest_intent(text)
+            if sim >= threshold:
+                return {"intent": intent, "confidence": round(sim, 3), "route": "semantic"}
+            logger.debug("semantic sim %.3f < %.2f → LLM fallback", sim, threshold)
+        except Exception as e:
+            logger.warning("semantic router error (%s) — LLM fallback", e)
 
     return classify_intent_llm(text)

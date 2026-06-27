@@ -236,8 +236,7 @@ class Settings:
     TAVILY_API_KEY: str = ""             # macro_search web grounding (free tier)
     MACRO_SEARCH_MAX_RESULTS: int = 5
 
-    # --- Chat intent router (semantic cosine → LLM fallback) ---
-    ENABLE_CHAT_INTENT_ROUTER: bool = True
+    # --- Chat intent router (semantic cosine → LLM fallback; core, self-gating) ---
     CHAT_SEMANTIC_THRESHOLD: float = 0.55     # cosine ≥ this → route by exemplar, no LLM
     CHAT_EMBED_MODEL: str = "openai/text-embedding-3-small"  # OpenRouter (OpenAI-compatible) embeddings
     CHAT_INTENT_MODEL: str = ""               # empty → SCORING_MODEL (cheap fallback classifier)
@@ -336,7 +335,6 @@ class Settings:
             SNAPSHOT_STALE_DAYS=int(os.environ.get("SNAPSHOT_STALE_DAYS", "3")),
             TAVILY_API_KEY=os.environ.get("TAVILY_API_KEY", ""),
             MACRO_SEARCH_MAX_RESULTS=int(os.environ.get("MACRO_SEARCH_MAX_RESULTS", "5")),
-            ENABLE_CHAT_INTENT_ROUTER=_flag("ENABLE_CHAT_INTENT_ROUTER", "true"),
             CHAT_SEMANTIC_THRESHOLD=float(os.environ.get("CHAT_SEMANTIC_THRESHOLD", "0.55")),
             CHAT_EMBED_MODEL=os.environ.get("CHAT_EMBED_MODEL", "openai/text-embedding-3-small"),
             CHAT_INTENT_MODEL=os.environ.get("CHAT_INTENT_MODEL", ""),

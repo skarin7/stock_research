@@ -39,6 +39,12 @@ def _model_name() -> str:
     return getattr(SETTINGS, "CHAT_EMBED_MODEL", "") or "openai/text-embedding-3-small"
 
 
+def available() -> bool:
+    """True when an embedding backend is configured (OpenRouter key present).
+    Lets the router skip the semantic tier cleanly instead of erroring per message."""
+    return bool(getattr(SETTINGS, "OPENROUTER_API_KEY", ""))
+
+
 def _get_client():
     """Lazily build an OpenAI-compatible client pointed at OpenRouter."""
     global _client
