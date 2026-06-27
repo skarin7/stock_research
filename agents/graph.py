@@ -31,9 +31,11 @@ def get_checkpointer():
     """Postgres checkpointer when DATABASE_URL is set; else in-memory (dev/tests)."""
     if SETTINGS.DATABASE_URL:
         try:
+            import psycopg
             from langgraph.checkpoint.postgres import PostgresSaver
 
-            saver = PostgresSaver.from_conn_string(SETTINGS.DATABASE_URL)
+            conn = psycopg.connect(SETTINGS.DATABASE_URL, autocommit=True)
+            saver = PostgresSaver(conn)
             saver.setup()
             logger.info("Using PostgresSaver checkpointer")
             return saver

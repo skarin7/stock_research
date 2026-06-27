@@ -111,6 +111,7 @@ class Settings:
     # --- API keys ---
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    GROWW_ACCESS_TOKEN: str = ""  # pre-baked daily token from Groww portal (valid until 6 AM IST)
     GROWW_TOTP_TOKEN: str = ""
     GROWW_TOTP_SECRET: str = ""
     GROWW_API_KEY: str = ""
@@ -237,6 +238,7 @@ class Settings:
         base = cls(
             ANTHROPIC_API_KEY=os.environ.get("ANTHROPIC_API_KEY", ""),
             GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
+            GROWW_ACCESS_TOKEN=os.environ.get("GROWW_ACCESS_TOKEN", ""),
             GROWW_TOTP_TOKEN=os.environ.get("GROWW_TOTP_TOKEN", ""),
             GROWW_TOTP_SECRET=os.environ.get("GROWW_TOTP_SECRET", ""),
             GROWW_API_KEY=os.environ.get("GROWW_API_KEY", ""),

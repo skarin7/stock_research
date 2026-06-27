@@ -1,9 +1,9 @@
 """Groww API market-data adapter — official source (primary).
 
-Auth: TOTP flow (preferred) — set GROWW_TOTP_TOKEN + GROWW_TOTP_SECRET. Falls
-back to legacy JWT (GROWW_API_KEY) if TOTP vars absent. NOTE: per Groww's docs
-all auth methods (Access Token, Key+Secret, Key+TOTP) require a *daily approval*
-on the Groww Cloud API Keys page — TOTP avoids per-request OTP entry but is NOT
+Auth priority: (1) TOTP — set GROWW_TOTP_TOKEN + GROWW_TOTP_SECRET.
+(2) API key+secret — set GROWW_API_KEY + GROWW_API_SECRET.
+NOTE: per Groww's docs all auth methods require a *daily approval* on the
+Groww Cloud API Keys page — TOTP avoids per-request OTP entry but is NOT
 exempt from the daily re-approval.
 
 The growwapi SDK is imported lazily so this module imports cleanly without the
@@ -21,17 +21,96 @@ FallbackChain keeps the system working until the subscription is active.
 """
 from __future__ import annotations
 
-import functools
+import collections
 import logging
+import random
 import time
 from datetime import date, datetime, timedelta
-from typing import Callable, Optional
+from typing import Callable, Deque, Optional, TypeVar
+
+_T = TypeVar("_T")
 
 from config import SETTINGS
 
 from enrichment.market_data.provider import Candle, OptionSignals, Quote
 
 logger = logging.getLogger(__name__)
+
+
+class _RateLimiter:
+    """Sliding-window rate limiter for Groww Live Data: 10 req/s, 300 req/min.
+    Operates below those ceilings by default (8/s, 250/min) to leave headroom.
+    No-op when GROWW_RATE_LIMIT_DELAY_MS == 0 (tests / offline mode)."""
+
+    def __init__(self, per_second: int = 8, per_minute: int = 250) -> None:
+        self._per_second = per_second
+        self._per_minute = per_minute
+        self._window: Deque[float] = collections.deque()
+
+    def wait(self) -> None:
+        if SETTINGS.GROWW_RATE_LIMIT_DELAY_MS == 0:
+            return  # bypass in tests / dry-run
+
+        now = time.monotonic()
+
+        # Evict entries outside the 60-second window
+        while self._window and self._window[0] < now - 60.0:
+            self._window.popleft()
+
+        # Per-minute cap: pause until the oldest call falls out of the window
+        if len(self._window) >= self._per_minute:
+            sleep_for = (self._window[0] + 60.0) - now
+            if sleep_for > 0:
+                logger.info(
+                    "Groww rate limit: %d calls/min cap reached — pausing %.1fs",
+                    self._per_minute, sleep_for,
+                )
+                time.sleep(sleep_for)
+            now = time.monotonic()
+            while self._window and self._window[0] < now - 60.0:
+                self._window.popleft()
+
+        # Per-second cap: count calls in the last 1 s
+        recent = sum(1 for t in self._window if t > now - 1.0)
+        if recent >= self._per_second:
+            time.sleep(1.0 / self._per_second)
+
+        self._window.append(time.monotonic())
+
+
+# Module-level singleton — shared across all GrowwProvider instances in process.
+_rate_limiter = _RateLimiter(
+    per_second=8,   # Groww limit: 10/s  (20% headroom)
+    per_minute=250, # Groww limit: 300/m (17% headroom)
+)
+
+# Exception names that warrant a retry (by name to avoid hard SDK import).
+_RETRYABLE_EXCEPTIONS = frozenset({"GrowwAPIRateLimitException", "GrowwAPITimeoutException"})
+
+
+def _is_retryable(e: Exception) -> bool:
+    return type(e).__name__ in _RETRYABLE_EXCEPTIONS
+
+
+def _retry(fn: Callable[[], _T], max_retries: int = 3, base_delay: float = 2.0) -> _T:
+    """Call fn(), retrying on rate-limit / timeout exceptions with exponential backoff + jitter.
+
+    Non-retryable Groww errors (auth, authz, 404, bad-request) bubble up immediately.
+    Retryable: GrowwAPIRateLimitException, GrowwAPITimeoutException.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if not _is_retryable(e) or attempt == max_retries:
+                raise
+            delay = min(base_delay * (2 ** attempt) + random.uniform(0.0, 1.0), 30.0)
+            logger.warning(
+                "Groww %s (attempt %d/%d) — retrying in %.1fs",
+                type(e).__name__, attempt + 1, max_retries, delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 def _sdk():
@@ -56,6 +135,10 @@ def _segment() -> str:
 def _get_access_token() -> str:
     """Generate a fresh Groww access token. Prefers TOTP (no per-request OTP);
     note Groww still requires daily key approval on the Cloud API Keys page."""
+    # Pre-baked daily token — copy from Groww portal each morning; valid until 6 AM next day.
+    if getattr(SETTINGS, "GROWW_ACCESS_TOKEN", None):
+        logger.info("Groww: using pre-set GROWW_ACCESS_TOKEN (valid until 6 AM IST)")
+        return SETTINGS.GROWW_ACCESS_TOKEN
     GrowwAPI = _sdk()
     if SETTINGS.GROWW_TOTP_TOKEN and SETTINGS.GROWW_TOTP_SECRET:
         try:
@@ -65,22 +148,48 @@ def _get_access_token() -> str:
             logger.info("Groww: authenticated via TOTP")
             return token
         except Exception as e:
-            logger.warning("Groww TOTP auth failed: %s — trying legacy JWT", e)
-    if SETTINGS.GROWW_API_KEY:
-        logger.info("Groww: using legacy JWT token")
-        return SETTINGS.GROWW_API_KEY
-    raise RuntimeError("No Groww credentials configured (set GROWW_TOTP_TOKEN/SECRET or GROWW_API_KEY)")
+            logger.warning("Groww TOTP auth failed: %s — trying API key+secret", e)
+    if SETTINGS.GROWW_API_KEY and SETTINGS.GROWW_API_SECRET:
+        try:
+            token = GrowwAPI.get_access_token(api_key=SETTINGS.GROWW_API_KEY, secret=SETTINGS.GROWW_API_SECRET)
+            logger.info("Groww: authenticated via API key+secret")
+            return token
+        except Exception as e:
+            logger.warning("Groww API key+secret auth failed: %s", e)
+    raise RuntimeError("No Groww credentials configured (set GROWW_TOTP_TOKEN/SECRET or GROWW_API_KEY/SECRET)")
 
 
-@functools.lru_cache(maxsize=1)
+_client_cache: dict = {"client": None, "expires_at": 0.0}
+
+
+def _token_expiry_epoch() -> float:
+    """Next 6:00 AM IST as a Unix timestamp (tokens expire at 6 AM IST daily)."""
+    from datetime import timezone
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(IST)
+    expiry_ist = now_ist.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now_ist >= expiry_ist:
+        expiry_ist = expiry_ist + timedelta(days=1)
+    return expiry_ist.timestamp()
+
+
 def default_client():
-    """Process-wide authenticated Groww client (one per process). Reused by the
-    broker layer for order placement."""
-    return _sdk()(_get_access_token())
+    """Return an authenticated Groww client, refreshing automatically after 6 AM IST.
 
-
-def _delay() -> float:
-    return SETTINGS.GROWW_RATE_LIMIT_DELAY_MS / 1000.0
+    TOTP credentials make this fully automatic — no daily manual token copy needed.
+    Pre-baked GROWW_ACCESS_TOKEN overrides (manual fallback when TOTP isn't set up).
+    Reused by the broker layer for order placement.
+    """
+    now = time.time()
+    if _client_cache["client"] is None or now >= _client_cache["expires_at"]:
+        token = _get_access_token()
+        _client_cache["client"] = _sdk()(token)
+        _client_cache["expires_at"] = _token_expiry_epoch()
+        logger.info(
+            "Groww client (re)initialised — valid until %s IST",
+            datetime.fromtimestamp(_client_cache["expires_at"]).strftime("%H:%M"),
+        )
+    return _client_cache["client"]
 
 
 def _log_data_error(op: str, symbol: str, e: Exception) -> None:
@@ -129,19 +238,23 @@ class GrowwProvider:
         start = end - timedelta(days=days)
         try:
             client = self._client()
-            time.sleep(_delay())
             try:
                 interval = getattr(_sdk(), "CANDLE_INTERVAL_DAY", "1day")
             except Exception:
                 interval = "1day"
-            resp = client.get_historical_candles(
-                exchange=self._exchange,
-                segment=self._segment,
-                groww_symbol=f"NSE-{symbol.upper()}",
-                start_time=start.strftime("%Y-%m-%d %H:%M:%S"),
-                end_time=end.strftime("%Y-%m-%d %H:%M:%S"),
-                candle_interval=interval,
-            )
+
+            def _call():
+                _rate_limiter.wait()
+                return client.get_historical_candles(
+                    exchange=self._exchange,
+                    segment=self._segment,
+                    groww_symbol=f"NSE-{symbol.upper()}",
+                    start_time=start.strftime("%Y-%m-%d %H:%M:%S"),
+                    end_time=end.strftime("%Y-%m-%d %H:%M:%S"),
+                    candle_interval=interval,
+                )
+
+            resp = _retry(_call)
             rows = resp.get("candles") if isinstance(resp, dict) else None
             if rows is None and isinstance(resp, dict):
                 rows = resp.get("data", {}).get("candles")
@@ -160,12 +273,16 @@ class GrowwProvider:
     def get_quote(self, symbol: str) -> Quote:
         try:
             client = self._client()
-            time.sleep(_delay())
-            resp = client.get_quote(
-                trading_symbol=symbol.upper(),
-                exchange=self._exchange,
-                segment=self._segment,
-            )
+
+            def _call():
+                _rate_limiter.wait()
+                return client.get_quote(
+                    trading_symbol=symbol.upper(),
+                    exchange=self._exchange,
+                    segment=self._segment,
+                )
+
+            resp = _retry(_call)
             payload = resp.get("data", resp)
             return {
                 "ltp": _safe_float(payload, ["ltp", "lastPrice", "last_price", "close"]),
@@ -184,8 +301,12 @@ class GrowwProvider:
     def get_option_chain(self, symbol: str) -> OptionSignals:
         try:
             client = self._client()
-            time.sleep(_delay())
-            resp = client.get_option_chain(trading_symbol=symbol.upper(), exchange=self._exchange)
+
+            def _call():
+                _rate_limiter.wait()
+                return client.get_option_chain(trading_symbol=symbol.upper(), exchange=self._exchange)
+
+            resp = _retry(_call)
             payload = resp.get("data", resp) if isinstance(resp, dict) else {}
             chain = (payload.get("option_chain") or payload.get("optionChain")
                      or payload.get("chains") or [])
