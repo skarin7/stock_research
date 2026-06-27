@@ -95,6 +95,7 @@ def build_snapshot_rows(stocks: list[dict], scorecards: list[dict], news_map: di
             rationale=card.get("investment_rationale", ""),
             risk_flags=card.get("risk_flags", []),
             earnings_proximity=bool(card.get("earnings_proximity", False)),
+            technicals=s.get("technicals") or {},
         )
         rows.append(row)
     return rows
@@ -123,7 +124,8 @@ def save_daily_snapshot(run_date: str, rows: list[dict]) -> None:
                 run_date=run_date,
                 earnings_proximity=int(bool(row.get("earnings_proximity"))),
                 **{k: row.get(k) for k in (*_SNAPSHOT_FIELDS, "composite_score",
-                                           "signals", "news", "rationale", "risk_flags")},
+                                           "signals", "news", "rationale", "risk_flags",
+                                           "technicals")},
             ))
     logger.info("snapshot upserted to DB for %s", run_date)
 
@@ -142,7 +144,7 @@ def load_latest_snapshot() -> tuple[str | None, list[dict]]:
                 if latest:
                     rows = s.query(DailySnapshotRow).filter(DailySnapshotRow.run_date == latest).all()
                     keep = (*_SNAPSHOT_FIELDS, "composite_score", "signals", "news",
-                            "rationale", "risk_flags")
+                            "rationale", "risk_flags", "technicals")
                     return latest, [
                         {**{k: getattr(r, k) for k in keep},
                          "earnings_proximity": bool(r.earnings_proximity)}
@@ -160,6 +162,30 @@ def load_latest_snapshot() -> tuple[str | None, list[dict]]:
         except Exception as e:
             logger.warning("could not read %s: %s", p, e)
     return None, []
+
+
+# ── market-pulse state (debounce / baselines for the shock watcher) ────────────
+
+def _pulse_state_path() -> Path:
+    return Path(getattr(SETTINGS, "PULSE_STATE_FILE", "output/pulse_state.json"))
+
+
+def load_pulse_state() -> dict:
+    """Per-trigger armed flags + last-alert timestamps + last news-check time.
+    Returns an empty dict on first run / corrupt file."""
+    p = _pulse_state_path()
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception as e:
+            logger.warning("could not load pulse state (%s) — starting fresh", e)
+    return {}
+
+
+def save_pulse_state(state: dict) -> None:
+    p = _pulse_state_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2, default=str))
 
 
 # ── long-term memory (append-only jsonl; query by namespace) ───────────────────

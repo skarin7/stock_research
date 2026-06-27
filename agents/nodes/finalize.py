@@ -51,10 +51,24 @@ def finalize_node(state: AgentState) -> dict:
     except Exception as e:
         logger.warning("Backtest skipped: %s", e)
 
+    # The Scorecard contract drops enriched price/technical fields; merge them
+    # back into the top cards by ticker so the report + Telegram can show them.
+    enriched = state.get("enriched")
+    by_ticker = {s.get("symbol"): s for s in (enriched.legacy_stocks() if enriched else [])}
+
+    def _merge_enriched(card: dict) -> dict:
+        src = by_ticker.get(card.get("ticker")) or {}
+        for k in ("ltp", "52w_high", "52w_low", "technicals"):
+            if card.get(k) is None and src.get(k) is not None:
+                card[k] = src[k]
+        return card
+
+    top_cards = [_merge_enriched(c) for c in ranking.legacy_top()]
+
     from reports.daily_report import write_report
 
     report_path = write_report(
-        top_stocks=ranking.legacy_top(),
+        top_stocks=top_cards,
         all_scores=ranking.legacy_all(),
         report_date=report_date,
         total_screened=state.get("total_screened", 0),
@@ -80,7 +94,7 @@ def finalize_node(state: AgentState) -> dict:
         from notifications.telegram_notifier import send_report
 
         send_report(
-            top_stocks=ranking.legacy_top(),
+            top_stocks=top_cards,
             report_path=Path(report_path),
             report_date=report_date.strftime("%Y-%m-%d"),
             macro_context=(state.get("enriched").macro_context if state.get("enriched") else ""),

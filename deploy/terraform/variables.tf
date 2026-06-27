@@ -81,6 +81,19 @@ variable "monitor_schedule" {
   default     = "*/5 3-10 * * 1-5"
 }
 
+# ── Market-pulse shock watcher (tight cadence, incl. pre-open) ──────────────────
+variable "enable_pulse" {
+  type        = bool
+  description = "Provision the market-pulse Cloud Run Job + Scheduler (intraday shock alerts; ENABLE_PULSE_AGENT=true)."
+  default     = false
+}
+
+variable "pulse_schedule" {
+  type        = string
+  description = "Cron (UTC) for the pulse job. Default every 2 min, 02:00–10:59 UTC (~07:30–16:29 IST incl. pre-open), Mon–Fri."
+  default     = "*/2 2-10 * * 1-5"
+}
+
 # ── Non-secret config (plain env on the job) ────────────────────────────────────
 variable "stock_universe" {
   type    = string
@@ -245,8 +258,8 @@ variable "chat_service_name" {
 }
 
 variable "telegram_webhook_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
+  type        = string
+  sensitive   = true
+  default     = ""
   description = "Secret token sent by Telegram in X-Telegram-Bot-Api-Secret-Token header."
 }

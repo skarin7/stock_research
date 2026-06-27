@@ -102,6 +102,10 @@ def research_node(state: AgentState) -> dict:
     from enrichment.fundamentals import enrich_fundamentals
     stocks = enrich_fundamentals(stocks, ref_date=report_date)
 
+    # MACD + breakout annotations from the OHLC candles already fetched above.
+    from enrichment.technical_signals import attach_technicals
+    stocks = attach_technicals(stocks)
+
     # ── Stage 4: news + macro ─────────────────────────────────────────────────
     from enrichment.news_fetcher import fetch_macro_context, fetch_news_batch
     news_map = fetch_news_batch(stocks)

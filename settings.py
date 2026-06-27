@@ -96,6 +96,38 @@ def _default_signal_weights() -> dict:
     }
 
 
+def _default_pulse_shock_keywords() -> list:
+    return [
+        "nifty crash", "sensex fall", "stock market crash india",
+        "war", "oil price spike", "circuit breaker nse",
+    ]
+
+
+def _default_pulse_global_tickers() -> dict:
+    # symbol → threshold %. Negative = drop trigger, positive = rise trigger.
+    return {
+        "^KS11": -2.0,    # Kospi (Korea)
+        "^N225": -2.0,    # Nikkei (Japan)
+        "^HSI": -2.0,     # Hang Seng (Hong Kong)
+        "BZ=F": 4.0,      # Brent crude (sharp move either way → use abs in node)
+        "INR=X": 0.8,     # USD/INR up = rupee weakness
+        "ES=F": -1.5,     # S&P 500 futures
+        "NQ=F": -1.5,     # Nasdaq 100 futures
+    }
+
+
+def _default_pulse_global_sector_map() -> dict:
+    # event key → {"headwind": [...], "tailwind": [...]} Indian sectors.
+    return {
+        "crude_up": {"headwind": ["Paints", "Aviation", "Tyres", "Oil Marketing"],
+                     "tailwind": ["Oil Exploration"]},
+        "inr_weak": {"headwind": ["Importers", "Oil Marketing"],
+                     "tailwind": ["IT", "Pharma"]},
+        "us_tech_selloff": {"headwind": ["IT"], "tailwind": []},
+        "asia_riskoff": {"headwind": ["broad"], "tailwind": []},
+    }
+
+
 def _default_screener_filters() -> dict:
     return {
         "max_pe_ratio_vs_sector": 1.0,
@@ -147,7 +179,7 @@ class Settings:
     DRY_RUN_STOCK_COUNT: int = 5
     GROWW_RATE_LIMIT_DELAY_MS: int = 200
     SCORING_BATCH_SIZE: int = 10
-    OHLC_LOOKBACK_DAYS: int = 10
+    OHLC_LOOKBACK_DAYS: int = 60  # ≥35 for MACD(12,26,9) warmup + 20d breakout
     EARNINGS_PROXIMITY_DAYS: int = 5
     GROWW_BASE_URL: str = "https://api.groww.in/v1/market"
 
@@ -171,6 +203,9 @@ class Settings:
     ENABLE_TRADING_AGENT: bool = False
     ENABLE_MONITORING_AGENT: bool = False
     ENABLE_MEMORY_AGENT: bool = False
+    # Market-pulse shock watcher is a standalone scheduled job; enabled by env
+    # (not the AGENT_PROFILE flags, which a profile replace() would override).
+    ENABLE_PULSE_AGENT: bool = False
 
     # --- Live-trading hard gate ---
     ENABLE_LIVE_TRADING: bool = False
@@ -199,6 +234,19 @@ class Settings:
     SNAPSHOT_STALE_DAYS: int = 3
     TAVILY_API_KEY: str = ""             # macro_search web grounding (free tier)
     MACRO_SEARCH_MAX_RESULTS: int = 5
+
+    # --- Market-pulse shock watcher (Part A) ---
+    PULSE_INDEX_DROP_PCT: float = 1.5            # NIFTY intraday drop % → alert
+    PULSE_VIX_SPIKE_PCT: float = 15.0            # India VIX % spike → alert
+    PULSE_HOLDING_DROP_PCT: float = 4.0          # per-holding intraday drop % → alert
+    PULSE_ALERT_COOLDOWN_MIN: int = 20           # secondary safety floor on re-alerts
+    PULSE_NEWS_ENABLED: bool = True
+    PULSE_NEWS_MIN_GAP_MIN: int = 5              # min minutes between LLM news classifications
+    PULSE_STATE_FILE: str = os.path.join("output", "pulse_state.json")
+    PULSE_SHOCK_KEYWORDS: list = field(default_factory=_default_pulse_shock_keywords)
+    PULSE_GLOBAL_ENABLED: bool = True
+    PULSE_GLOBAL_TICKERS: dict = field(default_factory=_default_pulse_global_tickers)
+    PULSE_GLOBAL_SECTOR_MAP: dict = field(default_factory=_default_pulse_global_sector_map)
 
     # --- Cost / iteration guardrails ---
     MAX_DEBATE_ROUNDS: int = 3
@@ -279,6 +327,15 @@ class Settings:
             SNAPSHOT_STALE_DAYS=int(os.environ.get("SNAPSHOT_STALE_DAYS", "3")),
             TAVILY_API_KEY=os.environ.get("TAVILY_API_KEY", ""),
             MACRO_SEARCH_MAX_RESULTS=int(os.environ.get("MACRO_SEARCH_MAX_RESULTS", "5")),
+            ENABLE_PULSE_AGENT=_flag("ENABLE_PULSE_AGENT", "false"),
+            PULSE_INDEX_DROP_PCT=float(os.environ.get("PULSE_INDEX_DROP_PCT", "1.5")),
+            PULSE_VIX_SPIKE_PCT=float(os.environ.get("PULSE_VIX_SPIKE_PCT", "15.0")),
+            PULSE_HOLDING_DROP_PCT=float(os.environ.get("PULSE_HOLDING_DROP_PCT", "4.0")),
+            PULSE_ALERT_COOLDOWN_MIN=int(os.environ.get("PULSE_ALERT_COOLDOWN_MIN", "20")),
+            PULSE_NEWS_ENABLED=_flag("PULSE_NEWS_ENABLED", "true"),
+            PULSE_NEWS_MIN_GAP_MIN=int(os.environ.get("PULSE_NEWS_MIN_GAP_MIN", "5")),
+            PULSE_STATE_FILE=os.path.join(output_dir, "pulse_state.json"),
+            PULSE_GLOBAL_ENABLED=_flag("PULSE_GLOBAL_ENABLED", "true"),
             MAX_DEBATE_ROUNDS=int(os.environ.get("MAX_DEBATE_ROUNDS", "3")),
             DEBATE_TOP_N=int(os.environ.get("DEBATE_TOP_N", "5")),
             MAX_GRAPH_STEPS=int(os.environ.get("MAX_GRAPH_STEPS", "50")),

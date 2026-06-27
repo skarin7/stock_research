@@ -104,3 +104,20 @@ def build_monitor_graph(checkpointer=None, nodes=None):
     g.add_edge(START, "monitor")
     g.add_edge("monitor", END)
     return g.compile(checkpointer=checkpointer or get_checkpointer())
+
+
+def build_pulse_graph(checkpointer=None, nodes=None):
+    """Compile the standalone market-pulse graph: START → pulse → END.
+
+    Run on a tight 1–2 min schedule (incl. pre-open) to alert on market shocks.
+    """
+    from langgraph.graph import END, START, StateGraph
+
+    from agents.nodes.pulse import pulse_node
+
+    node = (nodes or {}).get("pulse", pulse_node)
+    g = StateGraph(AgentState)
+    g.add_node("pulse", node)
+    g.add_edge(START, "pulse")
+    g.add_edge("pulse", END)
+    return g.compile(checkpointer=checkpointer or get_checkpointer())
