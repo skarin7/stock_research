@@ -36,21 +36,24 @@ def _get_langfuse():
 
 
 def _summarize(result: dict) -> str:
-    if not isinstance(result, dict):
+    try:
+        if not isinstance(result, dict):
+            return "ok"
+        if "error" in result:
+            return f"error: {result['error']}"
+        if "stocks" in result:
+            return f"{len(result['stocks'])} stocks"
+        if "quotes" in result:
+            return f"{len(result['quotes'])} quotes"
+        if "news" in result:
+            return f"{len(result['news'])} symbols"
+        if "scores" in result:
+            return f"{len(result['scores'])} scores"
+        if "past_calls" in result:
+            return f"{len(result['past_calls'])} past calls"
         return "ok"
-    if "error" in result:
-        return f"error: {result['error']}"
-    if "stocks" in result:
-        return f"{len(result['stocks'])} stocks"
-    if "quotes" in result:
-        return f"{len(result['quotes'])} quotes"
-    if "news" in result:
-        return f"{len(result['news'])} symbols"
-    if "scores" in result:
-        return f"{len(result['scores'])} scores"
-    if "past_calls" in result:
-        return f"{len(result['past_calls'])} past calls"
-    return "ok"
+    except Exception:
+        return "ok"
 
 
 class _Span:
