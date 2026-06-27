@@ -236,6 +236,13 @@ class Settings:
     TAVILY_API_KEY: str = ""             # macro_search web grounding (free tier)
     MACRO_SEARCH_MAX_RESULTS: int = 5
 
+    # --- Chat intent router (semantic cosine → LLM fallback) ---
+    ENABLE_CHAT_INTENT_ROUTER: bool = True
+    CHAT_SEMANTIC_THRESHOLD: float = 0.55     # cosine ≥ this → route by exemplar, no LLM
+    CHAT_EMBED_MODEL: str = "openai/text-embedding-3-small"  # OpenRouter (OpenAI-compatible) embeddings
+    CHAT_INTENT_MODEL: str = ""               # empty → SCORING_MODEL (cheap fallback classifier)
+    CHAT_INTENT_MIN_CONFIDENCE: float = 0.6   # LLM confidence below this → ambiguous
+
     # --- Market-pulse shock watcher (Part A) ---
     PULSE_INDEX_DROP_PCT: float = 1.5            # NIFTY intraday drop % → alert
     PULSE_VIX_SPIKE_PCT: float = 15.0            # India VIX % spike → alert
@@ -329,6 +336,11 @@ class Settings:
             SNAPSHOT_STALE_DAYS=int(os.environ.get("SNAPSHOT_STALE_DAYS", "3")),
             TAVILY_API_KEY=os.environ.get("TAVILY_API_KEY", ""),
             MACRO_SEARCH_MAX_RESULTS=int(os.environ.get("MACRO_SEARCH_MAX_RESULTS", "5")),
+            ENABLE_CHAT_INTENT_ROUTER=_flag("ENABLE_CHAT_INTENT_ROUTER", "true"),
+            CHAT_SEMANTIC_THRESHOLD=float(os.environ.get("CHAT_SEMANTIC_THRESHOLD", "0.55")),
+            CHAT_EMBED_MODEL=os.environ.get("CHAT_EMBED_MODEL", "openai/text-embedding-3-small"),
+            CHAT_INTENT_MODEL=os.environ.get("CHAT_INTENT_MODEL", ""),
+            CHAT_INTENT_MIN_CONFIDENCE=float(os.environ.get("CHAT_INTENT_MIN_CONFIDENCE", "0.6")),
             ENABLE_PULSE_AGENT=_flag("ENABLE_PULSE_AGENT", "false"),
             PULSE_INDEX_DROP_PCT=float(os.environ.get("PULSE_INDEX_DROP_PCT", "1.5")),
             PULSE_VIX_SPIKE_PCT=float(os.environ.get("PULSE_VIX_SPIKE_PCT", "15.0")),

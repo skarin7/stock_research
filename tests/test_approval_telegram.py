@@ -33,7 +33,8 @@ def _bind():
 def test_request_shows_rupee_budget(monkeypatch):
     sent = {}
     import notifications.telegram_notifier as tn
-    monkeypatch.setattr(tn, "send_text", lambda chat, body: sent.update(body=body) or True)
+    monkeypatch.setattr(tn, "send_buttons",
+                        lambda chat, body, kb: sent.update(body=body, kb=kb) or True)
 
     payload = {"run_id": "R1", "proposals": [
         {"proposal_id": "p1", "ticker": "RELIANCE", "side": "BUY",
@@ -44,12 +45,17 @@ def test_request_shows_rupee_budget(monkeypatch):
     # 12 * 2840.5 = 34086 → rendered as ₹34,086
     assert "₹34,086" in sent["body"]
     assert "RELIANCE</b> BUY x12" in sent["body"]
+    # inline buttons carry the decision as callback_data
+    flat = [b for row in sent["kb"] for b in row]
+    assert {"text": "❌ Reject", "callback_data": "reject:p1"} in flat
+    assert any(b["callback_data"] == "approve:p1" for b in flat)
 
 
 def test_request_market_order_has_no_budget(monkeypatch):
     sent = {}
     import notifications.telegram_notifier as tn
-    monkeypatch.setattr(tn, "send_text", lambda chat, body: sent.update(body=body) or True)
+    monkeypatch.setattr(tn, "send_buttons",
+                        lambda chat, body, kb: sent.update(body=body, kb=kb) or True)
 
     payload = {"run_id": "R1", "proposals": [
         {"proposal_id": "p1", "ticker": "TCS", "side": "BUY", "qty": 5,

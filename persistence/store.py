@@ -306,6 +306,44 @@ def load_groww_token() -> str | None:
         return None
 
 
+# ── chat intent exemplar bank (embed-once cache; Postgres) ─────────────────────
+
+def load_intent_bank(exemplar_hash: str, model: str) -> tuple[list[str], list[list[float]]] | None:
+    """Return (labels, vectors) for the cached exemplar bank, or None if absent
+    / no DB / read error (caller then embeds + saves)."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    try:
+        from persistence.db import session_scope
+        from persistence.models import IntentEmbeddingRow
+
+        with session_scope() as s:
+            row = s.get(IntentEmbeddingRow, {"exemplar_hash": exemplar_hash, "model": model})
+            if row is not None:
+                return list(row.labels), list(row.vectors)
+    except Exception as e:
+        logger.warning("intent bank load failed (%s) — will re-embed", e)
+    return None
+
+
+def save_intent_bank(exemplar_hash: str, model: str, labels: list[str],
+                     vectors: list[list[float]]) -> None:
+    """Persist the embedded bank. No-op without DATABASE_URL; never raises."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return
+    try:
+        from persistence.db import session_scope
+        from persistence.models import IntentEmbeddingRow
+
+        with session_scope() as s:
+            s.merge(IntentEmbeddingRow(
+                exemplar_hash=exemplar_hash, model=model, labels=labels, vectors=vectors,
+            ))
+        logger.info("intent bank cached to PG (hash=%s, model=%s)", exemplar_hash, model)
+    except Exception as e:
+        logger.warning("intent bank save failed: %s", e)
+
+
 # ── long-term memory (append-only jsonl; query by namespace) ───────────────────
 
 def record_memory(namespace: str, key: str, value: dict) -> None:

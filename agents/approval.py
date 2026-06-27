@@ -22,13 +22,16 @@ logger = logging.getLogger("agents.approval")
 
 
 def send_approval_request(payload: dict) -> bool:
-    """Message the human the proposals awaiting approval. Returns True if sent."""
+    """Message the human the proposals awaiting approval with tap-to-act inline
+    buttons (typed ``/approve <id>`` / bare ``approve`` still work as fallbacks).
+    Returns True if sent."""
     if not (getattr(SETTINGS, "TELEGRAM_BOT_TOKEN", "") and getattr(SETTINGS, "TELEGRAM_CHAT_ID", "")):
         logger.warning("approval: Telegram not configured — cannot send approval request")
         return False
-    from notifications.telegram_notifier import send_text as _send_text
+    from notifications.telegram_notifier import send_buttons
 
     lines = ["<b>⚠️ Trade approval required</b>", f"run: <code>{payload.get('run_id', '')}</code>", ""]
+    keyboard: list[list[dict]] = []
     for p in payload.get("proposals", []):
         price = p.get("limit_price")
         qty = p.get("qty", 0)
@@ -36,12 +39,28 @@ def send_approval_request(payload: dict) -> bool:
         budget_str = f"  = ₹{budget:,.0f}" if budget else ""   # transaction budget = qty × limit
         lines.append(
             f"<b>{p['ticker']}</b> {p['side']} x{qty} @ {price or 'MKT'}{budget_str} "
-            f"(conv {p.get('conviction', 0):.2f})\n"
-            f"  approve: <code>/approve {p['proposal_id']}</code>\n"
-            f"  reject:  <code>/reject {p['proposal_id']}</code>"
+            f"(conv {p.get('conviction', 0):.2f})"
         )
+        pid = p["proposal_id"]
+        keyboard.append([
+            {"text": f"✅ Approve {p['ticker']}", "callback_data": f"approve:{pid}"},
+            {"text": "❌ Reject", "callback_data": f"reject:{pid}"},
+        ])
     lines.append("\nUnapproved proposals expire automatically.")
-    return _send_text(SETTINGS.TELEGRAM_CHAT_ID, "\n".join(lines))
+    return send_buttons(SETTINGS.TELEGRAM_CHAT_ID, "\n".join(lines), keyboard)
+
+
+def handle_callback(data: str) -> str | None:
+    """Process an inline-button tap (``approve:<id>`` / ``reject:<id>``).
+
+    Reuses the same resume path as the typed command. Returns a human-readable
+    reply, or ``None`` if ``data`` isn't an approval callback."""
+    if not data or ":" not in data:
+        return None
+    action, pid = data.split(":", 1)
+    if action not in ("approve", "reject"):
+        return None
+    return handle_approval_command(f"/{action} {pid}")
 
 
 def decisions_from_lists(approve_ids, reject_ids) -> dict:
@@ -106,6 +125,57 @@ def handle_approval_command(text: str) -> str | None:
     tail = f" — order <code>{oid}</code>" if oid else ""
     verb = {"approve": "Approved", "reject": "Rejected"}[action]
     return f"{verb} <b>{prop.get('ticker', proposal_id)}</b> → <b>{final}</b>{tail}."
+
+
+_AFFIRM = {"approve", "approved", "yes", "y", "ok", "okay", "confirm", "go", "proceed", "accept"}
+_REJECT = {"reject", "rejected", "no", "n", "cancel", "decline", "skip", "stop", "abort"}
+
+
+def pending_proposals() -> list[dict]:
+    """Proposals currently awaiting human approval (single-user allowlist → all the chat's)."""
+    from persistence.store import load_proposals
+
+    return [p for p in load_proposals().values() if p.get("status") == "awaiting_approval"]
+
+
+def _decision_keyword(text: str) -> str | None:
+    """Map a bare reply to 'approve'|'reject' — only on a clear one-word-ish decision."""
+    t = text.strip().lower().rstrip(".!").split()
+    if not t:
+        return None
+    head = t[0]
+    if head in _AFFIRM:
+        return "approve"
+    if head in _REJECT:
+        return "reject"
+    return None
+
+
+def route_approval(text: str) -> str | None:
+    """Deterministic tier-1 approval router (NO LLM / NO ReAct).
+
+    Handles both the explicit ``/approve <id>``|``/reject <id>`` command AND a
+    bare ``approve``/``reject`` reply when an approval is pending for the chat.
+    Returns a reply string when it handled the message, else ``None`` (the caller
+    then routes to the chat agent).
+    """
+    t = (text or "").strip()
+    if t.startswith("/approve") or t.startswith("/reject"):
+        return handle_approval_command(t)
+
+    pend = pending_proposals()
+    if not pend:
+        return None                       # no HITL pending → not an approval context
+
+    decision = _decision_keyword(t)
+    if decision is None:
+        return None                       # pending, but not an approve/reject reply → chat agent
+    if len(pend) == 1:
+        return handle_approval_command(f"/{decision} {pend[0]['proposal_id']}")
+
+    ids = ", ".join(f"<code>{p['proposal_id']}</code>" for p in pend)
+    return (f"There are {len(pend)} pending approvals — reply "
+            f"<code>/{decision} &lt;id&gt;</code>. Pending: {ids}")
 
 
 def parse_telegram_decisions(updates: dict) -> dict:

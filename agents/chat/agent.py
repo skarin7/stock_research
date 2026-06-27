@@ -119,12 +119,52 @@ def _record_turn(chat_id: str, tokens: int, cost_usd: float, status: str) -> Non
         logger.warning("could not record chat turn: %s", e)
 
 
+def _record_intent(chat_id: str, verdict: dict) -> None:
+    """Log the routed intent for analytics (best-effort, never raises)."""
+    try:
+        from persistence import store
+
+        store.record_memory("chat_intent", str(chat_id), {
+            "intent": verdict.get("intent"),
+            "route": verdict.get("route"),
+            "confidence": verdict.get("confidence"),
+        })
+    except Exception as e:
+        logger.debug("could not record intent: %s", e)
+
+
 def run_turn(chat_id: str, text: str) -> str:
     """One user message in → one reply out. Never raises."""
     from agents.supervisor import kill_switch_active
 
     if kill_switch_active():
         return "⛔ Kill-switch is engaged — the agent is halted. Clear it with run_agents.py --unkill."
+
+    text = (text or "").strip()
+
+    # Tiered intent router (semantic cosine → LLM fallback) in front of the
+    # expensive ReAct loop. Fail-open: any error → fall through to the agent.
+    hint = ""
+    if getattr(SETTINGS, "ENABLE_CHAT_INTENT_ROUTER", False) and text:
+        try:
+            from agents.chat.intent import (
+                CANNED, clarify_reply, is_research_intent, route_intent,
+            )
+
+            verdict = route_intent(text)
+            intent = verdict["intent"]
+            _record_intent(chat_id, verdict)
+
+            if intent in CANNED:
+                _record_turn(chat_id, 0, 0.0, "COMPLETED")
+                return CANNED[intent]
+            if intent == "ambiguous":
+                _record_turn(chat_id, 0, 0.0, "COMPLETED")
+                return clarify_reply()
+            if is_research_intent(intent):
+                hint = f"(intent: {intent})\n"
+        except Exception:
+            logger.exception("intent routing failed — proceeding to agent")
 
     from agents.chat.tools import reset_turn_state
 
@@ -137,7 +177,7 @@ def run_turn(chat_id: str, text: str) -> str:
     from langgraph.errors import GraphRecursionError
 
     try:
-        result = _get_agent().invoke({"messages": [("user", text)]}, cfg)
+        result = _get_agent().invoke({"messages": [("user", hint + text)]}, cfg)
     except GraphRecursionError:
         logger.warning("chat turn hit the tool-call cap")
         _record_turn(chat_id, 0, 0.0, "MAX_ROUNDS")

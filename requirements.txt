@@ -30,3 +30,7 @@ alembic>=1.13.0
 # Observability (self-hosted)
 langfuse>=2.0.0
 prometheus-client>=0.20.0
+# Chat intent router uses OpenRouter (OpenAI-compatible) embeddings via the
+# existing `openai` client; cosine math needs numpy (already pulled by pandas,
+# pinned here for clarity).
+numpy>=1.24.0
