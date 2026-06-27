@@ -17,6 +17,16 @@ _engine = None
 _Session = None
 
 
+def _sa_url(url: str) -> str:
+    """Rewrite postgresql:// → postgresql+psycopg:// so SQLAlchemy uses psycopg3.
+    The repo uses psycopg[binary] (v3); psycopg2 is not installed."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg" + url[len("postgresql"):]
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg" + url[len("postgres"):]
+    return url
+
+
 def _ensure_engine():
     global _engine, _Session
     if _engine is not None:
@@ -26,7 +36,7 @@ def _ensure_engine():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    _engine = create_engine(SETTINGS.DATABASE_URL, pool_pre_ping=True)
+    _engine = create_engine(_sa_url(SETTINGS.DATABASE_URL), pool_pre_ping=True)
     _Session = sessionmaker(bind=_engine)
     return _engine
 
