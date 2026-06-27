@@ -101,14 +101,14 @@ def trace_tool(name: str, args: dict):
             pass
     span = _Span(real_span)
 
-    logger.info("tool_start", extra={"tool": name, "args": args})
+    logger.info("tool_start", extra={"tool": name, "tool_args": args})
     try:
         yield span
     except Exception as exc:
         duration_ms = round((time.monotonic() - t0) * 1000)
         logger.error(
             "tool_error",
-            extra={"tool": name, "args": args, "error": str(exc), "duration_ms": duration_ms},
+            extra={"tool": name, "tool_args": args, "error": str(exc), "duration_ms": duration_ms},
         )
         span._end(error=str(exc))
         raise
@@ -118,7 +118,7 @@ def trace_tool(name: str, args: dict):
             "tool_call",
             extra={
                 "tool": name,
-                "args": args,
+                "tool_args": args,
                 "result_summary": _summarize(span.output),
                 "_source": span.output.get("_source", "unknown"),
                 "duration_ms": duration_ms,

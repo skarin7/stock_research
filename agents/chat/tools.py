@@ -19,6 +19,8 @@ from config import SETTINGS
 
 logger = logging.getLogger("agents.chat.tools")
 
+from observability.chat_tracing import trace_tool
+
 _MAX_QUOTE_SYMBOLS = 5
 _MAX_NEWS_SYMBOLS = 5
 _MAX_SCORE_SYMBOLS = 10
@@ -90,8 +92,10 @@ def screen_snapshot(
     """
     try:
         meta, rows = _snapshot_rows()
+        _source = "snapshot_cache" if rows else "no_snapshot"
         if not rows:
-            return {**meta, "error": "no snapshot available — the daily run has not produced data yet"}
+            return {**meta, "_source": _source,
+                    "error": "no snapshot available — the daily run has not produced data yet"}
 
         def keep(r: dict) -> bool:
             pe = r.get("pe_ratio")
@@ -116,10 +120,14 @@ def screen_snapshot(
             matched.sort(key=lambda r: r.get("composite_score") or 0, reverse=True)
 
         limit = max(1, min(int(limit), 25))
-        return {**meta, "total_matched": len(matched), "stocks": [_trim(r) for r in matched[:limit]]}
+        with trace_tool("screen_snapshot", {"sector": sector, "min_score": min_score, "limit": limit}) as span:
+            result = {**meta, "_source": _source,
+                      "total_matched": len(matched), "stocks": [_trim(r) for r in matched[:limit]]}
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("screen_snapshot failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "snapshot_cache"}
 
 
 @tool
@@ -129,16 +137,19 @@ def live_quote(symbols: list[str]) -> dict:
         from enrichment.market_data import get_default_provider
 
         provider = get_default_provider()
-        out = {}
-        for sym in symbols[:_MAX_QUOTE_SYMBOLS]:
-            try:
-                out[sym.upper()] = provider.get_quote(sym.upper()) or {"error": "no data"}
-            except Exception as e:
-                out[sym.upper()] = {"error": str(e)}
-        return {"quotes": out}
+        with trace_tool("live_quote", {"symbols": symbols[:_MAX_QUOTE_SYMBOLS]}) as span:
+            out = {}
+            for sym in symbols[:_MAX_QUOTE_SYMBOLS]:
+                try:
+                    out[sym.upper()] = provider.get_quote(sym.upper()) or {"error": "no data"}
+                except Exception as e:
+                    out[sym.upper()] = {"error": str(e)}
+            result = {"quotes": out, "_source": "live_api"}
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("live_quote failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "live_api"}
 
 
 @tool
@@ -151,11 +162,17 @@ def fetch_news(symbols: list[str]) -> dict:
         company = {r["symbol"]: r.get("company", "") for r in rows if r.get("symbol")}
         stocks = [{"symbol": s.upper(), "company": company.get(s.upper(), "")}
                   for s in symbols[:_MAX_NEWS_SYMBOLS]]
-        news = fetch_news_batch(stocks)
-        return {"news": {sym: (v or {}).get("headlines", []) for sym, v in news.items()}}
+        with trace_tool("fetch_news", {"symbols": [s["symbol"] for s in stocks]}) as span:
+            news = fetch_news_batch(stocks)
+            result = {
+                "news": {sym: (v or {}).get("headlines", []) for sym, v in news.items()},
+                "_source": "google_news_rss",
+            }
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("fetch_news failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "google_news_rss"}
 
 
 @tool
@@ -172,7 +189,7 @@ def score_subset(symbols: list[str]) -> dict:
 
         meta, rows = _snapshot_rows(symbols[:_MAX_SCORE_SYMBOLS])
         if not rows:
-            return {**meta, "error": "none of those symbols are in the snapshot"}
+            return {**meta, "error": "none of those symbols are in the snapshot", "_source": "claude_haiku_sync"}
 
         # Snapshot rows already carry the daily enrichment; top up price + news live.
         stocks = []
@@ -191,21 +208,25 @@ def score_subset(symbols: list[str]) -> dict:
         except Exception as e:
             logger.warning("live price top-up failed: %s", e)
 
-        news_map = fetch_news_batch(stocks)
-        scored = score_stocks(stocks, news_map)
-        ranked = rank_stocks(scored, top_n=len(scored))
-        return {
-            **meta,
-            "scores": [
-                {"ticker": c.get("ticker"), "composite_score": c.get("composite_score"),
-                 "rationale": c.get("investment_rationale", "")[:300],
-                 "risk_flags": (c.get("risk_flags") or [])[:3]}
-                for c in ranked
-            ],
-        }
+        with trace_tool("score_subset", {"symbols": [s["symbol"] for s in stocks]}) as span:
+            news_map = fetch_news_batch(stocks)
+            scored = score_stocks(stocks, news_map)
+            ranked = rank_stocks(scored, top_n=len(scored))
+            result = {
+                **meta,
+                "_source": "claude_haiku_sync",
+                "scores": [
+                    {"ticker": c.get("ticker"), "composite_score": c.get("composite_score"),
+                     "rationale": c.get("investment_rationale", "")[:300],
+                     "risk_flags": (c.get("risk_flags") or [])[:3]}
+                    for c in ranked
+                ],
+            }
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("score_subset failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "claude_haiku_sync"}
 
 
 @tool
@@ -225,7 +246,7 @@ def deep_dive(ticker: str) -> dict:
         ticker = ticker.upper()
         meta, rows = _snapshot_rows([ticker])
         if not rows:
-            return {"error": f"{ticker} not found in the latest snapshot"}
+            return {"error": f"{ticker} not found in the latest snapshot", "_source": "debate_subgraph"}
         row = rows[0]
 
         scorecard = Scorecard.from_legacy({
@@ -254,17 +275,21 @@ def deep_dive(ticker: str) -> dict:
             {"recursion_limit": max_rounds * 3 + 5},
         )
         conv = result.get("conviction") or {}
-        return {
-            **meta,
-            "ticker": ticker,
-            "direction": conv.get("direction", "neutral"),
-            "conviction": conv.get("conviction", 0.0),
-            "bull_case": result.get("bull_case", ""),
-            "bear_case": result.get("bear_case", ""),
-        }
+        with trace_tool("deep_dive", {"ticker": ticker}) as span:
+            result_dict = {
+                **meta,
+                "_source": "debate_subgraph",
+                "ticker": ticker,
+                "direction": conv.get("direction", "neutral"),
+                "conviction": conv.get("conviction", 0.0),
+                "bull_case": result.get("bull_case", ""),
+                "bear_case": result.get("bear_case", ""),
+            }
+            span.set_output(result_dict)
+        return result_dict
     except Exception as e:
         logger.exception("deep_dive failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "debate_subgraph"}
 
 
 @tool
@@ -273,11 +298,15 @@ def get_portfolio() -> dict:
     try:
         from persistence import store
 
-        book = store.recompute(store.load_portfolio())
-        return json.loads(book.model_dump_json())
+        with trace_tool("get_portfolio", {}) as span:
+            book = store.recompute(store.load_portfolio())
+            result = json.loads(book.model_dump_json())
+            result["_source"] = "portfolio_store"
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("get_portfolio failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "portfolio_store"}
 
 
 @tool
@@ -292,27 +321,30 @@ def macro_search(query: str) -> dict:
     """
     api_key = getattr(SETTINGS, "TAVILY_API_KEY", "")
     if not api_key:
-        return {"error": "macro search is not configured (set TAVILY_API_KEY)"}
+        return {"error": "macro search is not configured (set TAVILY_API_KEY)", "_source": "unavailable"}
     try:
         import requests
 
         max_results = int(getattr(SETTINGS, "MACRO_SEARCH_MAX_RESULTS", 5))
-        resp = requests.post(
-            "https://api.tavily.com/search",
-            json={"api_key": api_key, "query": query, "search_depth": "basic",
-                  "max_results": max_results, "include_answer": True},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        results = [{"title": r.get("title"), "url": r.get("url"),
-                    "snippet": r.get("content")}
-                   for r in (data.get("results") or [])[:max_results]]
-        return {"answer": data.get("answer") or "", "results": results,
-                "fetched_at": date.today().isoformat()}
+        with trace_tool("macro_search", {"query": query}) as span:
+            resp = requests.post(
+                "https://api.tavily.com/search",
+                json={"api_key": api_key, "query": query, "search_depth": "basic",
+                      "max_results": max_results, "include_answer": True},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = [{"title": r.get("title"), "url": r.get("url"),
+                        "snippet": r.get("content")}
+                       for r in (data.get("results") or [])[:max_results]]
+            result = {"answer": data.get("answer") or "", "results": results,
+                      "fetched_at": date.today().isoformat(), "_source": "tavily_api"}
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("macro_search failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "tavily_api"}
 
 
 @tool
@@ -350,22 +382,26 @@ def timing(ticker: str) -> dict:
         if ltp is not None and high_20d is not None:
             breakout = ltp > high_20d
 
-        return {
-            "ticker": ticker,
-            "ltp": ltp,
-            "rsi14": m.get("rsi14"),
-            "pct_52w_position": pct_pos,
-            "near_52w_high": None if pct_pos is None else pct_pos >= 0.95,
-            "near_52w_low": None if pct_pos is None else pct_pos <= 0.05,
-            "breakout_20d": breakout,
-            "mom_5d": pct_change_ndays(closes, 5),
-            "mom_20d": pct_change_ndays(closes, 20),
-            "support": support,
-            "resistance": high_20d,
-        }
+        with trace_tool("timing", {"ticker": ticker}) as span:
+            result = {
+                "_source": "intraday_technicals",
+                "ticker": ticker,
+                "ltp": ltp,
+                "rsi14": m.get("rsi14"),
+                "pct_52w_position": pct_pos,
+                "near_52w_high": None if pct_pos is None else pct_pos >= 0.95,
+                "near_52w_low": None if pct_pos is None else pct_pos <= 0.05,
+                "breakout_20d": breakout,
+                "mom_5d": pct_change_ndays(closes, 5),
+                "mom_20d": pct_change_ndays(closes, 20),
+                "support": support,
+                "resistance": high_20d,
+            }
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("timing failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "intraday_technicals"}
 
 
 _RECALL_FIELDS = ("ticker", "score", "conviction", "rationale", "regime", "outcome", "date")
@@ -380,13 +416,16 @@ def recall(ticker: str) -> dict:
     try:
         from persistence import store
 
-        ticker = ticker.upper()
-        calls = store.recent_calls(ticker) or []
-        trimmed = [{k: c.get(k) for k in _RECALL_FIELDS if k in c} for c in calls]
-        return {"ticker": ticker, "past_calls": trimmed}
+        with trace_tool("recall", {"ticker": ticker}) as span:
+            ticker = ticker.upper()
+            calls = store.recent_calls(ticker) or []
+            trimmed = [{k: c.get(k) for k in _RECALL_FIELDS if k in c} for c in calls]
+            result = {"ticker": ticker, "past_calls": trimmed, "_source": "memory_store"}
+            span.set_output(result)
+        return result
     except Exception as e:
         logger.exception("recall failed")
-        return {"error": str(e)}
+        return {"error": str(e), "_source": "memory_store"}
 
 
 CHAT_TOOLS = [screen_snapshot, live_quote, fetch_news, score_subset, deep_dive,

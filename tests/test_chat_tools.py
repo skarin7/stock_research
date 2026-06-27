@@ -103,7 +103,7 @@ def test_screen_internal_failure_returns_error(monkeypatch):
     monkeypatch.setattr(store_mod, "load_latest_snapshot",
                         lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     out = tools_mod.screen_snapshot.func()
-    assert out == {"error": "db down"}
+    assert out == {"error": "db down", "_source": "snapshot_cache"}
 
 
 # ── live_quote / fetch_news ───────────────────────────────────────────────────
@@ -276,7 +276,7 @@ def test_macro_search_wraps_errors(monkeypatch):
     monkeypatch.setattr(requests, "post",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
     out = tools_mod.macro_search.func("q")
-    assert out == {"error": "timeout"}
+    assert out == {"error": "timeout", "_source": "tavily_api"}
 
 
 # ── timing ────────────────────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ def test_timing_wraps_errors(monkeypatch):
     monkeypatch.setattr(md, "get_default_provider", lambda: FakeProvider())
 
     out = tools_mod.timing.func("AAA")
-    assert out == {"error": "provider down"}
+    assert out == {"error": "provider down", "_source": "intraday_technicals"}
 
 
 # ── recall ────────────────────────────────────────────────────────────────────
@@ -365,11 +365,11 @@ def test_recall_returns_past_calls(monkeypatch):
 def test_recall_empty_when_no_memory(monkeypatch):
     monkeypatch.setattr(store_mod, "recent_calls", lambda t, limit=5: [])
     out = tools_mod.recall.func("AAA")
-    assert out == {"ticker": "AAA", "past_calls": []}
+    assert out == {"ticker": "AAA", "past_calls": [], "_source": "memory_store"}
 
 
 def test_recall_wraps_errors(monkeypatch):
     monkeypatch.setattr(store_mod, "recent_calls",
                         lambda t, limit=5: (_ for _ in ()).throw(RuntimeError("boom")))
     out = tools_mod.recall.func("AAA")
-    assert out == {"error": "boom"}
+    assert out == {"error": "boom", "_source": "memory_store"}
