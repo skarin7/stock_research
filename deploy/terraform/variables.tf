@@ -114,6 +114,19 @@ variable "openrouter_api_key" {
   default   = ""
 }
 
+variable "openrouter_base_url" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "tavily_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+
 variable "langfuse_host" {
   type        = string
   description = "Langfuse Cloud host (e.g. https://cloud.langfuse.com or https://us.cloud.langfuse.com)."
