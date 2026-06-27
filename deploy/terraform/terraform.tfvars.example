@@ -5,7 +5,7 @@
 # project_id = "gen-lang-client-0533266855"
 # region     = "asia-south1"
 
-# --- Required ---
+# --- Required (keep even if using OpenRouter — chat agent falls back to Anthropic) ---
 anthropic_api_key = "sk-ant-..."
 
 # --- Durable state: Neon serverless Postgres connection string ---
@@ -35,11 +35,12 @@ screener_screen_slug = ""
 stock_universe = "nifty200"
 agent_profile  = "research"  # research | paper | live
 
-# --- LLM provider: "anthropic" (default) or "openrouter" (cheap models) ---
-llm_provider = "anthropic"
-# openrouter_api_key       = "sk-or-..."
-# openrouter_scoring_model = "deepseek/deepseek-chat"
-# openrouter_report_model  = "deepseek/deepseek-chat"
+# --- LLM provider: "anthropic" or "openrouter" (10-50x cheaper, recommended) ---
+# OpenRouter routes to DeepSeek/Qwen etc. Anthropic Batch API discount does NOT apply via OpenRouter.
+llm_provider             = "openrouter"   # change to "anthropic" to use Haiku/Sonnet directly
+openrouter_api_key       = "sk-or-..."
+openrouter_scoring_model = "deepseek/deepseek-chat"
+openrouter_report_model  = "deepseek/deepseek-chat"
 
 # --- Chat agent: Telegram webhook Cloud Run Service (opt-in, scales to zero = no idle cost) ---
 # enable_chat_agent       = true
