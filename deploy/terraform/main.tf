@@ -28,6 +28,7 @@ locals {
       LANGFUSE_HOST        = var.langfuse_host
       PROMETHEUS_PUSHGATEWAY_URL = var.prometheus_pushgateway_url
       GEMINI_API_KEY       = var.gemini_api_key
+      GROWW_ACCESS_TOKEN   = var.groww_access_token
       GROWW_TOTP_TOKEN     = var.groww_totp_token
       GROWW_TOTP_SECRET    = var.groww_totp_secret
       TELEGRAM_BOT_TOKEN   = var.telegram_bot_token

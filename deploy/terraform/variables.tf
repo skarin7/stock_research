@@ -120,6 +120,12 @@ variable "openrouter_base_url" {
   default   = ""
 }
 
+variable "groww_access_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Pre-baked daily Groww access token (valid until 6 AM IST). Optional — TOTP auto-refreshes when GROWW_TOTP_TOKEN+SECRET are set."
+}
 variable "tavily_api_key" {
   type      = string
   sensitive = true

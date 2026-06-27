@@ -11,11 +11,24 @@ __all__ = ["Candle", "Quote", "OptionSignals", "MarketDataProvider",
 
 
 def get_default_provider() -> MarketDataProvider:
-    """Groww-primary with yfinance fallback (the production default)."""
+    """Provider chain — order depends on agent mode.
+
+    research/paper: yfinance-primary (free, no API cost, sufficient for EOD data).
+    live: Groww-primary (real-time quotes needed for order placement accuracy).
+    """
     from enrichment.market_data.fallback import FallbackChain
     from enrichment.market_data.groww import GrowwProvider
     from enrichment.market_data.yfinance_source import YFinanceProvider
-    return FallbackChain([GrowwProvider(), YFinanceProvider()])
+
+    try:
+        from config import SETTINGS
+        live_mode = getattr(SETTINGS, "AGENT_MODE", "research") == "live"
+    except Exception:
+        live_mode = False
+
+    if live_mode:
+        return FallbackChain([GrowwProvider(), YFinanceProvider()])
+    return FallbackChain([YFinanceProvider(), GrowwProvider()])
 
 
 def enrich_stocks(stocks, provider: MarketDataProvider | None = None):
