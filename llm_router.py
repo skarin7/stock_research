@@ -33,6 +33,12 @@ def report_model() -> str:
     return SETTINGS.OPENROUTER_REPORT_MODEL if is_openrouter() else SETTINGS.REPORT_MODEL
 
 
+def chat_model() -> str:
+    """Model for the conversational chat agent."""
+    return getattr(SETTINGS, "OPENROUTER_CHAT_MODEL", "deepseek/deepseek-chat") \
+        if is_openrouter() else getattr(SETTINGS, "REPORT_MODEL", "")
+
+
 def openrouter_client():
     """Cached OpenAI-SDK client pointed at OpenRouter."""
     global _openrouter_client
