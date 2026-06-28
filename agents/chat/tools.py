@@ -466,7 +466,8 @@ def historical_performance(symbols: list[str], from_date: str, to_date: str) -> 
         if dt_from > dt_to:
             return {"error": f"from_date {from_date} is after to_date {to_date}", "_source": "ohlcv_candles"}
 
-        days_needed = (dt_to - dt_from).days + 30  # buffer for trading-day gaps
+        today = _date.today()
+        days_needed = (today - dt_from).days + 10  # fetch from today back to from_date
 
         with trace_tool("historical_performance", {"symbols": syms, "from_date": from_date, "to_date": to_date}) as span:
             results = {}
