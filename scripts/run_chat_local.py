@@ -23,7 +23,8 @@ load_dotenv()
 
 from config import SETTINGS  # noqa: E402
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+from observability.logging_config import setup_logging
+setup_logging()
 logger = logging.getLogger("chat_local")
 
 _BASE = f"https://api.telegram.org/bot{SETTINGS.TELEGRAM_BOT_TOKEN}"
