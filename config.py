@@ -12,4 +12,15 @@ load_dotenv()
 
 SETTINGS = Settings.from_env()
 
-__all__ = ["SETTINGS"]
+
+def trading_enabled() -> bool:
+    """True when TRADING_MODE is paper or live (trading chain is active)."""
+    return SETTINGS.TRADING_MODE in ("paper", "live")
+
+
+def live_trading() -> bool:
+    """True when TRADING_MODE is live (real broker + HITL approval required)."""
+    return SETTINGS.TRADING_MODE == "live"
+
+
+__all__ = ["SETTINGS", "trading_enabled", "live_trading"]
