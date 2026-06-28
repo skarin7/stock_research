@@ -174,3 +174,57 @@ class TestChatCacheModule:
         # Non-market intents get the stable TTL (24h by default)
         assert isinstance(ttl, int) and ttl > 0
         assert ttl == int(getattr(cache_mod.SETTINGS, "CHAT_CACHE_STABLE_TTL_SECONDS", 86400))
+
+
+class TestRunTurnCacheIntegration:
+    """run_turn() must check cache before agent and store after."""
+
+    def test_cache_hit_skips_agent(self, monkeypatch):
+        import agents.chat.agent as agent_mod
+        import agents.chat.cache as cache_mod
+
+        monkeypatch.setattr(cache_mod, "check", lambda **kw: "cached response")
+        # agent._get_agent().invoke should never be called
+        monkeypatch.setattr(agent_mod, "_get_agent", lambda: (_ for _ in ()).throw(
+            AssertionError("agent was invoked on a cache hit")))
+
+        # Bypass kill-switch and intent router
+        monkeypatch.setattr("agents.supervisor.kill_switch_active", lambda: False)
+        monkeypatch.setattr("agents.chat.intent.route_intent",
+                            lambda t: {"intent": "research", "confidence": 0.9, "route": "regex"})
+        monkeypatch.setattr("agents.chat.tools.reset_turn_state", lambda: None)
+
+        # The agent should NOT be invoked
+        try:
+            result = agent_mod.run_turn("123", "What is PE of TCS?")
+        except AssertionError:
+            pytest.fail("agent was invoked on a cache hit")
+        assert result == "cached response"
+
+    def test_cache_miss_stores_result(self, monkeypatch):
+        import agents.chat.agent as agent_mod
+        import agents.chat.cache as cache_mod
+
+        stored = {}
+        monkeypatch.setattr(cache_mod, "check", lambda **kw: None)
+        monkeypatch.setattr(cache_mod, "put", lambda **kw: stored.update(kw))
+
+        from unittest.mock import MagicMock
+        fake_msg = MagicMock()
+        fake_msg.type = "ai"
+        fake_msg.content = "TCS PE is 28."
+        fake_result = {"messages": [fake_msg]}
+
+        monkeypatch.setattr("agents.supervisor.kill_switch_active", lambda: False)
+        monkeypatch.setattr("agents.chat.intent.route_intent",
+                            lambda t: {"intent": "research", "confidence": 0.9, "route": "regex"})
+        monkeypatch.setattr("agents.chat.tools.reset_turn_state", lambda: None)
+
+        fake_agent = MagicMock()
+        fake_agent.invoke.return_value = fake_result
+        monkeypatch.setattr(agent_mod, "_get_agent", lambda: fake_agent)
+
+        result = agent_mod.run_turn("123", "What is PE of TCS?")
+        assert result == "TCS PE is 28."
+        assert "response" in stored
+        assert stored["response"] == "TCS PE is 28."
