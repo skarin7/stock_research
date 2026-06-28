@@ -1,5 +1,6 @@
 """Tiered intent router for the chat agent.
 
+  tier 1.5 regex     — structural pattern match (query shape, not stock name)
   tier 2  semantic   — cosine match vs the embedded exemplar bank (no LLM)
   tier 3  llm         — one cheap Haiku call, only when semantic sim < threshold
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from config import SETTINGS
 
@@ -21,6 +23,44 @@ from agents.chat.intent_exemplars import ALL_INTENTS, RESEARCH_INTENTS
 logger = logging.getLogger("agents.chat.intent")
 
 from observability.chat_tracing import trace_intent
+
+# Structural patterns that identify an intent regardless of company/stock name.
+# Ordered: first match wins. Each tuple is (compiled_regex, intent).
+_REGEX_RULES: list[tuple[re.Pattern, str]] = [
+    # ticker / symbol / code lookups
+    (re.compile(
+        r'\b(nse|bse)\s+(code|ticker|symbol|scrip|listing)\b'
+        r'|\b(ticker|symbol|scrip)\s+(for|of)\b'
+        r'|\bstock\s+(code|symbol|ticker)\b'
+        r'|\blisted\s+on\s+(nse|bse)\b'
+        r'|\bwhich\s+exchange\s+(is|are)\b'
+        r'|\bfind\s+(ticker|symbol|code)\b',
+        re.IGNORECASE,
+    ), "research"),
+    # greetings
+    (re.compile(
+        r'^\s*(hi+|hello+|hey+|good\s+(morning|evening|afternoon)|thanks?|thank\s+you)\s*[!.]*\s*$',
+        re.IGNORECASE,
+    ), "greeting"),
+    # portfolio
+    (re.compile(
+        r'\b(my\s+(portfolio|holdings|positions|book)|show\s+portfolio|p&l|pnl)\b',
+        re.IGNORECASE,
+    ), "portfolio"),
+    # trade intent
+    (re.compile(
+        r'\b(buy|sell|place\s+order|execute\s+trade|square\s+off)\s+\d',
+        re.IGNORECASE,
+    ), "trade_intent"),
+]
+
+
+def _regex_classify(text: str) -> str | None:
+    """Return intent if a structural regex matches, else None."""
+    for pattern, intent in _REGEX_RULES:
+        if pattern.search(text):
+            return intent
+    return None
 
 # Canned replies for intents that never need the ReAct loop.
 CANNED: dict[str, str] = {
@@ -86,7 +126,17 @@ def classify_intent_llm(text: str) -> dict:
 
 
 def route_intent(text: str) -> dict:
-    """Return {intent, confidence, route}. Tier 2 semantic → tier 3 LLM fallback."""
+    """Return {intent, confidence, route}.
+
+    Tier 1.5 regex → tier 2 semantic → tier 3 LLM fallback.
+    """
+    # Tier 1.5: structural regex — zero cost, zero latency, company-name-agnostic
+    regex_intent = _regex_classify(text)
+    if regex_intent:
+        verdict = {"intent": regex_intent, "confidence": 1.0, "route": "regex"}
+        trace_intent(route="regex", intent=regex_intent, score=1.0)
+        return verdict
+
     threshold = float(getattr(SETTINGS, "CHAT_SEMANTIC_THRESHOLD", 0.55))
     from agents.chat import embedder
 
