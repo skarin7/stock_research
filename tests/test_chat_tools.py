@@ -137,8 +137,53 @@ def test_fetch_news_uses_snapshot_company_names(monkeypatch):
     monkeypatch.setattr(nf, "fetch_news_batch", fake_batch)
 
     out = tools_mod.fetch_news.func(["AAA"])
-    assert out["news"]["AAA"] == ["news AAA"]
+    # Without headline_items, falls back to text-only dicts
+    assert out["news"]["AAA"][0]["text"] == "news AAA"
     assert seen["stocks"][0]["company"] == "Alpha"
+
+
+def test_fetch_news_returns_headline_items_with_url(monkeypatch):
+    """fetch_news tool returns structured headline_items when news_fetcher provides them."""
+    def fake_batch(stocks):
+        sym = stocks[0]["symbol"]
+        return {sym: {
+            "headlines": ["HDFC profit rises"],
+            "headline_items": [{"text": "HDFC profit rises", "url": "https://news.google.com/x", "date": "2026-06-28"}],
+            "sentiment": "neutral",
+        }}
+
+    import enrichment.news_fetcher as nf
+    monkeypatch.setattr(nf, "fetch_news_batch", fake_batch)
+
+    # Patch snapshot so fetch_news can resolve company names
+    monkeypatch.setattr(store_mod, "load_latest_snapshot", lambda: ("2026-06-27", [
+        {"symbol": "HDFCBANK", "company": "HDFC Bank"}
+    ]))
+
+    result = tools_mod.fetch_news.func(["HDFCBANK"])
+    items = result["news"]["HDFCBANK"]
+    assert isinstance(items, list)
+    assert items[0]["text"] == "HDFC profit rises"
+    assert items[0]["url"] == "https://news.google.com/x"
+    assert items[0]["date"] == "2026-06-28"
+
+
+def test_fetch_news_falls_back_to_headlines_when_no_headline_items(monkeypatch):
+    """fetch_news tool degrades gracefully when headline_items key is absent."""
+    def fake_batch(stocks):
+        sym = stocks[0]["symbol"]
+        return {sym: {"headlines": ["HDFC profit rises"], "sentiment": "neutral"}}
+
+    import enrichment.news_fetcher as nf
+    monkeypatch.setattr(nf, "fetch_news_batch", fake_batch)
+    monkeypatch.setattr(store_mod, "load_latest_snapshot", lambda: ("2026-06-27", [
+        {"symbol": "HDFCBANK", "company": "HDFC Bank"}
+    ]))
+
+    result = tools_mod.fetch_news.func(["HDFCBANK"])
+    items = result["news"]["HDFCBANK"]
+    assert isinstance(items, list)
+    assert items[0]["text"] == "HDFC profit rises"
 
 
 # ── score_subset ──────────────────────────────────────────────────────────────

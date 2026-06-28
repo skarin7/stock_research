@@ -55,7 +55,7 @@ def _trim(row: dict) -> dict:
         "market_cap_cr": row.get("market_cap_cr"),
         "ltp": row.get("ltp"),
         "composite_score": row.get("composite_score"),
-        "news": (row.get("news") or [])[:3],
+        "news": (row.get("headline_items") or row.get("news") or [])[:3],
         "rationale": (row.get("rationale") or "")[:300],
         "risk_flags": (row.get("risk_flags") or [])[:3],
         "earnings_proximity": row.get("earnings_proximity"),
@@ -178,7 +178,11 @@ def fetch_news(symbols: list[str]) -> dict:
         with trace_tool("fetch_news", {"symbols": [s["symbol"] for s in stocks]}) as span:
             news = fetch_news_batch(stocks)
             result = {
-                "news": {sym: (v or {}).get("headlines", []) for sym, v in news.items()},
+                "news": {
+                    sym: (v or {}).get("headline_items") or
+                         [{"text": h} for h in (v or {}).get("headlines", [])]
+                    for sym, v in news.items()
+                },
                 "_source": "google_news_rss",
             }
             span.set_output(result)

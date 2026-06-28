@@ -24,7 +24,7 @@ from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
-_EMPTY = {"headlines": [], "sentiment": "neutral"}
+_EMPTY = {"headlines": [], "headline_items": [], "sentiment": "neutral"}
 _DELAY = 0.5  # seconds between per-stock RSS requests
 _MAX_HEADLINES = 5      # kept at 5 so Claude input tokens (cost) stay flat
 _MAX_AGE_DAYS = 30      # drop stale headlines
@@ -60,7 +60,7 @@ def _parse_pubdate(s: str) -> Optional[datetime]:
 
 def _rss_items(query: str) -> list[dict]:
     """Fetch RSS items for a query, filtered to trusted sources. Each item is
-    {"title": str, "ts": datetime|None}."""
+    {"title": str, "url": str, "ts": datetime|None}."""
     params = {"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}
     resp = requests.get(_RSS_URL, params=params, headers=_HEADERS, timeout=10)
     resp.raise_for_status()
@@ -76,7 +76,8 @@ def _rss_items(query: str) -> list[dict]:
         title = title.rsplit(" - ", 1)[0].strip()
         if not title:
             continue
-        items.append({"title": title, "ts": _parse_pubdate(item.findtext("pubDate", ""))})
+        url = item.findtext("link", "").strip()
+        items.append({"title": title, "url": url, "ts": _parse_pubdate(item.findtext("pubDate", ""))})
     return items
 
 
@@ -97,17 +98,19 @@ def _fetch_via_rss(symbol: str, company: str) -> dict:
         return fresh
 
     # results headlines take priority, then general coverage
-    seen, headlines = set(), []
+    seen, headlines, headline_items = set(), [], []
     for it in prep(results_items) + prep(general_items):
         norm = re.sub(r"\W+", " ", it["title"].lower()).strip()
         if norm in seen:
             continue
         seen.add(norm)
+        date_str = it["ts"].date().isoformat() if it.get("ts") else None
         headlines.append(it["title"])
+        headline_items.append({"text": it["title"], "url": it.get("url", ""), "date": date_str})
         if len(headlines) == _MAX_HEADLINES:
             break
 
-    return {"headlines": headlines, "sentiment": "neutral"}
+    return {"headlines": headlines, "headline_items": headline_items, "sentiment": "neutral"}
 
 
 def fetch_news(symbol: str, company: str = "") -> dict:

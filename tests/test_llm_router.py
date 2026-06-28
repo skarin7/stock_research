@@ -49,6 +49,23 @@ def _fake_openrouter_response(text):
     return resp
 
 
+def test_chat_model_openrouter(monkeypatch):
+    """chat_model() returns OPENROUTER_CHAT_MODEL when provider is openrouter."""
+    mock_config.LLM_PROVIDER = "openrouter"
+    mock_config.OPENROUTER_CHAT_MODEL = "deepseek/deepseek-chat"
+    monkeypatch.setattr(llm_router, "SETTINGS", mock_config)
+    assert llm_router.chat_model() == "deepseek/deepseek-chat"
+    mock_config.LLM_PROVIDER = "anthropic"  # restore
+
+
+def test_chat_model_anthropic(monkeypatch):
+    """chat_model() returns REPORT_MODEL when provider is anthropic."""
+    mock_config.LLM_PROVIDER = "anthropic"
+    mock_config.REPORT_MODEL = "claude-sonnet-4-6"
+    monkeypatch.setattr(llm_router, "SETTINGS", mock_config)
+    assert llm_router.chat_model() == "claude-sonnet-4-6"
+
+
 def test_score_stocks_routes_to_openrouter(monkeypatch):
     from scoring import claude_scorer
 
