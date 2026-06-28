@@ -135,3 +135,40 @@ class TestStoreLookupSemantic:
             mock_settings.DATABASE_URL = ""
             result = st.lookup_chat_cache_semantic([1.0, 0.0])
         assert result is None
+
+
+class TestChatCacheModule:
+    def test_check_returns_none_when_disabled(self, monkeypatch):
+        import agents.chat.cache as cache_mod
+        from unittest.mock import MagicMock
+
+        fake_settings = MagicMock()
+        fake_settings.CHAT_CACHE_ENABLED = False
+        monkeypatch.setattr(cache_mod, "SETTINGS", fake_settings)
+        result = cache_mod.check(
+            text="show me IT stocks",
+            intent="research",
+            embedding=None,
+        )
+        assert result is None
+
+    def test_skip_personal_intents(self):
+        import agents.chat.cache as cache_mod
+
+        for intent in ("portfolio", "recall"):
+            result = cache_mod.check(text="my holdings", intent=intent, embedding=None)
+            assert result is None, f"Should not cache {intent} intent"
+
+    def test_ttl_for_market_intents(self):
+        import agents.chat.cache as cache_mod
+
+        # TTL function must return positive int for research/entry_exit/macro
+        for intent in ("research", "entry_exit", "macro"):
+            ttl = cache_mod._ttl_for_intent(intent)
+            assert isinstance(ttl, int) and ttl > 0
+
+    def test_ttl_for_unknown_intent_is_default(self):
+        import agents.chat.cache as cache_mod
+
+        ttl = cache_mod._ttl_for_intent("unknown_xyz")
+        assert ttl == cache_mod._DEFAULT_TTL_SECONDS
