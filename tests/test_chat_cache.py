@@ -171,4 +171,6 @@ class TestChatCacheModule:
         import agents.chat.cache as cache_mod
 
         ttl = cache_mod._ttl_for_intent("unknown_xyz")
-        assert ttl == cache_mod._DEFAULT_TTL_SECONDS
+        # Non-market intents get the stable TTL (24h by default)
+        assert isinstance(ttl, int) and ttl > 0
+        assert ttl == int(getattr(cache_mod.SETTINGS, "CHAT_CACHE_STABLE_TTL_SECONDS", 86400))
