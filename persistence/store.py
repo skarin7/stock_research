@@ -475,7 +475,11 @@ def store_chat_cache(
     intent: str,
     ttl_seconds: int,
 ) -> None:
-    """Persist a query-response pair. No-op without DB."""
+    """Persist a query-response pair. No-op without DB.
+
+    Append-only: duplicate hashes accumulate; lookup uses ``order_by(created_at.desc()).first()``
+    so the latest entry always wins. Expired rows are pruned by the ``expires_at`` filter.
+    """
     if not getattr(SETTINGS, "DATABASE_URL", ""):
         return
     try:

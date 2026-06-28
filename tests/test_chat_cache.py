@@ -36,18 +36,102 @@ class TestStoreLookupExact:
         mock_s.query.return_value = mock_q
         return mock_s
 
-    def test_hit_returns_response(self):
+    def test_hit_returns_response(self, monkeypatch):
+        from persistence import store as st
+        from persistence.models import ChatResponseCache
+
+        row = MagicMock(spec=ChatResponseCache)
+        row.response = "cached answer"
+
+        mock_session = self._make_session([row])
+
+        with patch("persistence.store.SETTINGS") as mock_settings, \
+             patch("persistence.db.session_scope") as mock_ss:
+            mock_settings.DATABASE_URL = "postgres://x"
+            mock_ss.return_value.__enter__ = MagicMock(return_value=mock_session)
+            mock_ss.return_value.__exit__ = MagicMock(return_value=False)
+            result = st.lookup_chat_cache_exact("abc123")
+        assert result == "cached answer"
+
+    def test_miss_returns_none(self, monkeypatch):
         from persistence import store as st
 
-        # Function exists and returns None when DATABASE_URL is unset (no-op without DB).
-        assert hasattr(st, "lookup_chat_cache_exact")
-        result = st.lookup_chat_cache_exact("abc123")
+        mock_session = self._make_session([])
+
+        with patch("persistence.store.SETTINGS") as mock_settings, \
+             patch("persistence.db.session_scope") as mock_ss:
+            mock_settings.DATABASE_URL = "postgres://x"
+            mock_ss.return_value.__enter__ = MagicMock(return_value=mock_session)
+            mock_ss.return_value.__exit__ = MagicMock(return_value=False)
+            result = st.lookup_chat_cache_exact("nohash")
         assert result is None
 
-    def test_miss_returns_none(self):
+    def test_no_db_returns_none(self):
         from persistence import store as st
-        assert hasattr(st, "lookup_chat_cache_exact")
+
+        with patch("persistence.store.SETTINGS") as mock_settings:
+            mock_settings.DATABASE_URL = ""
+            result = st.lookup_chat_cache_exact("abc123")
+        assert result is None
 
     def test_store_function_exists(self):
         from persistence import store as st
         assert hasattr(st, "store_chat_cache")
+
+
+class TestStoreLookupSemantic:
+    def test_hit_above_threshold(self):
+        from persistence import store as st
+
+        row = MagicMock()
+        row.query_embedding = [1.0, 0.0]
+        row.response = "semantic cached answer"
+
+        mock_q = MagicMock()
+        mock_q.filter.return_value = mock_q
+        mock_q.order_by.return_value = mock_q
+        mock_q.limit.return_value = mock_q
+        mock_q.all.return_value = [row]
+        mock_s = MagicMock()
+        mock_s.query.return_value = mock_q
+
+        with patch("persistence.store.SETTINGS") as mock_settings, \
+             patch("persistence.db.session_scope") as mock_ss:
+            mock_settings.DATABASE_URL = "postgres://x"
+            mock_ss.return_value.__enter__ = MagicMock(return_value=mock_s)
+            mock_ss.return_value.__exit__ = MagicMock(return_value=False)
+            # Query embedding is identical → dot product = 1.0 ≥ threshold 0.95
+            result = st.lookup_chat_cache_semantic([1.0, 0.0], threshold=0.95)
+        assert result == "semantic cached answer"
+
+    def test_miss_below_threshold(self):
+        from persistence import store as st
+
+        row = MagicMock()
+        row.query_embedding = [1.0, 0.0]
+        row.response = "some cached answer"
+
+        mock_q = MagicMock()
+        mock_q.filter.return_value = mock_q
+        mock_q.order_by.return_value = mock_q
+        mock_q.limit.return_value = mock_q
+        mock_q.all.return_value = [row]
+        mock_s = MagicMock()
+        mock_s.query.return_value = mock_q
+
+        with patch("persistence.store.SETTINGS") as mock_settings, \
+             patch("persistence.db.session_scope") as mock_ss:
+            mock_settings.DATABASE_URL = "postgres://x"
+            mock_ss.return_value.__enter__ = MagicMock(return_value=mock_s)
+            mock_ss.return_value.__exit__ = MagicMock(return_value=False)
+            # Orthogonal embedding → dot product = 0.0 < threshold 0.95
+            result = st.lookup_chat_cache_semantic([0.0, 1.0], threshold=0.95)
+        assert result is None
+
+    def test_no_db_returns_none(self):
+        from persistence import store as st
+
+        with patch("persistence.store.SETTINGS") as mock_settings:
+            mock_settings.DATABASE_URL = ""
+            result = st.lookup_chat_cache_semantic([1.0, 0.0])
+        assert result is None
