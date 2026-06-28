@@ -15,11 +15,8 @@ from datetime import date
 
 import config  # noqa: F401  (import builds SETTINGS / loads .env)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+from observability.logging_config import setup_logging
+setup_logging()
 logger = logging.getLogger("run_intraday")
 
 
