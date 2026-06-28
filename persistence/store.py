@@ -165,6 +165,45 @@ def load_latest_snapshot() -> tuple[str | None, list[dict]]:
     return None, []
 
 
+def load_snapshot_for_date(date_str: str) -> tuple[str | None, list[dict]]:
+    """Load snapshot for a specific date. DB first, then file fallback.
+
+    Returns (run_date, rows) — same shape as load_latest_snapshot().
+    Returns (None, []) if no data exists for that date.
+    """
+    if getattr(SETTINGS, "DATABASE_URL", ""):
+        try:
+            from persistence.db import session_scope
+            from persistence.models import DailySnapshotRow
+
+            with session_scope() as s:
+                rows = (
+                    s.query(DailySnapshotRow)
+                    .filter(DailySnapshotRow.run_date == date_str)
+                    .all()
+                )
+                if rows:
+                    keep = (*_SNAPSHOT_FIELDS, "composite_score", "signals", "news",
+                            "rationale", "risk_flags", "technicals")
+                    return date_str, [
+                        {**{k: getattr(r, k) for k in keep},
+                         "earnings_proximity": bool(r.earnings_proximity)}
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.warning("DB snapshot load for %s failed: %s — trying file", date_str, e)
+
+    p = _snapshot_file(date_str)
+    if p.exists():
+        try:
+            data = json.loads(p.read_text())
+            return data.get("run_date", date_str), data.get("stocks", [])
+        except Exception as e:
+            logger.warning("file snapshot load for %s failed: %s", date_str, e)
+
+    return None, []
+
+
 # ── market-pulse state (debounce / baselines for the shock watcher) ────────────
 
 def _pulse_state_path() -> Path:

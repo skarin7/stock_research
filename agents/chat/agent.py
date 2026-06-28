@@ -36,6 +36,11 @@ deep_dive is for one named stock the user wants examined closely — at most onc
 - For "best time to buy/sell" / entry-exit questions, call timing(ticker) for the numbers \
 (RSI, 52w position, breakout, momentum, support/resistance), then compose the buy-zone / stop \
 / target verdict yourself — always with the risks, never "guaranteed".
+- For growth/performance questions over a period ("which stocks grew last month", \
+"Reliance return since Jun 20"), check the time_context hint in the message — \
+if lookback_days or date_from/date_to are given, call \
+historical_performance(symbols, from_date, to_date) with those dates. \
+For a specific past date's snapshot, call screen_snapshot(as_of="YYYY-MM-DD").
 - For current events / geopolitics / macro (e.g. "impact of the Iran war"), call \
 macro_search(query) to get grounded facts, map the event to sectors, then screen_snapshot \
 on those sectors to name the affected stocks. Cite the source URLs and the fetch date; it is \
@@ -160,6 +165,11 @@ def run_turn(chat_id: str, text: str) -> str:
     model = _resolved_model()
     provider = _resolved_provider()
 
+    # Extract time/date filters from query and append to agent hint
+    from agents.chat.query_filters import extract_filters as _extract_filters
+    _qfilters = _extract_filters(text)
+    _filter_hint = _qfilters.as_hint()  # "" when no filter found
+
     # Tiered intent router (semantic cosine → LLM fallback) in front of the
     # expensive ReAct loop — a core front door, self-gating on embedding
     # availability. Fail-open: any error → fall through to the agent.
@@ -183,8 +193,14 @@ def run_turn(chat_id: str, text: str) -> str:
                 return clarify_reply()
             if is_research_intent(routed_intent):
                 hint = f"(intent: {routed_intent})\n"
+                if _filter_hint:
+                    hint += f"{_filter_hint}\n"
         except Exception:
             logger.exception("intent routing failed — proceeding to agent")
+
+    # Append filter hint even if no intent was routed
+    if _filter_hint and not hint:
+        hint = _filter_hint + "\n"
 
     # Prompt response cache — check before agent, store after
     _cached_embedding: list[float] | None = None
