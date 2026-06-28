@@ -19,6 +19,8 @@ from scoring.prompts import SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger(__name__)
 
+from observability.chat_tracing import _get_langfuse
+
 
 @functools.lru_cache(maxsize=1)
 def _get_client() -> anthropic.Anthropic:
@@ -213,6 +215,22 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
     batches = [stocks[i:i + batch_size] for i in range(0, len(stocks), batch_size)]
     logger.info("Scoring %d stocks via Batch API in %d batches", len(stocks), len(batches))
 
+    _lf = _get_langfuse()
+    _lf_trace = None
+    if _lf is not None:
+        try:
+            _lf_trace = _lf.trace(
+                name="batch_scoring",
+                metadata={
+                    "model": SETTINGS.SCORING_MODEL,
+                    "stock_count": len(stocks),
+                    "batch_count": len(batches),
+                    "estimated_cost_usd": round(len(stocks) * 0.00025 * 0.5, 4),
+                },
+            )
+        except Exception:
+            pass
+
     batch_ids = []
     for i, chunk in enumerate(batches):
         logger.info("Submitting batch %d/%d (%d stocks)", i + 1, len(batches), len(chunk))
@@ -224,6 +242,12 @@ def score_stocks(stocks: list[dict], news_map: dict[str, dict], macro_context: s
             scorecard = _parse_result(result)
             if scorecard:
                 all_scores.append(scorecard)
+
+    if _lf_trace is not None:
+        try:
+            _lf_trace.update(output={"scored": len(all_scores), "total": len(stocks)})
+        except Exception:
+            pass
 
     logger.info("Scoring complete: %d/%d stocks successfully scored", len(all_scores), len(stocks))
     return all_scores
