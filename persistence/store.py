@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from config import SETTINGS
@@ -162,6 +162,45 @@ def load_latest_snapshot() -> tuple[str | None, list[dict]]:
             return data.get("run_date", p.parent.name), data.get("stocks", [])
         except Exception as e:
             logger.warning("could not read %s: %s", p, e)
+    return None, []
+
+
+def load_snapshot_for_date(date_str: str) -> tuple[str | None, list[dict]]:
+    """Load snapshot for a specific date. DB first, then file fallback.
+
+    Returns (run_date, rows) — same shape as load_latest_snapshot().
+    Returns (None, []) if no data exists for that date.
+    """
+    if getattr(SETTINGS, "DATABASE_URL", ""):
+        try:
+            from persistence.db import session_scope
+            from persistence.models import DailySnapshotRow
+
+            with session_scope() as s:
+                rows = (
+                    s.query(DailySnapshotRow)
+                    .filter(DailySnapshotRow.run_date == date_str)
+                    .all()
+                )
+                if rows:
+                    keep = (*_SNAPSHOT_FIELDS, "composite_score", "signals", "news",
+                            "rationale", "risk_flags", "technicals")
+                    return date_str, [
+                        {**{k: getattr(r, k) for k in keep},
+                         "earnings_proximity": bool(r.earnings_proximity)}
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.warning("DB snapshot load for %s failed: %s — trying file", date_str, e)
+
+    p = _snapshot_file(date_str)
+    if p.exists():
+        try:
+            data = json.loads(p.read_text())
+            return data.get("run_date", date_str), data.get("stocks", [])
+        except Exception as e:
+            logger.warning("file snapshot load for %s failed: %s", date_str, e)
+
     return None, []
 
 
@@ -395,3 +434,106 @@ def recompute(book: PortfolioState) -> PortfolioState:
     book.total_exposure = round(total, 2)
     book.sector_exposure = {k: round(v, 2) for k, v in sectors.items()}
     return book
+
+
+# ── chat response cache (prompt cache; exact + semantic lookup) ─────────────────
+
+def lookup_chat_cache_exact(query_hash: str) -> str | None:
+    """Return cached response for exact hash match, or None. No-op without DB."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    try:
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        with session_scope() as s:
+            row = (
+                s.query(ChatResponseCache)
+                .filter(
+                    ChatResponseCache.query_hash == query_hash,
+                    ChatResponseCache.expires_at > datetime.utcnow(),
+                )
+                .order_by(ChatResponseCache.created_at.desc())
+                .first()
+            )
+            return row.response if row else None
+    except Exception as e:
+        logger.warning("cache exact lookup failed: %s", e)
+        return None
+
+
+def lookup_chat_cache_semantic(
+    embedding: list[float], threshold: float = 0.95, limit: int = 200
+) -> str | None:
+    """Return cached response for semantically similar query, or None.
+
+    Loads up to ``limit`` recent non-expired rows, computes cosine similarity
+    in Python (embeddings are L2-normalised, so dot product = cosine), returns
+    the best match above ``threshold``. No-op without DB or numpy.
+    """
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    try:
+        import numpy as np
+
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        with session_scope() as s:
+            rows = (
+                s.query(ChatResponseCache)
+                .filter(ChatResponseCache.expires_at > datetime.utcnow())
+                .order_by(ChatResponseCache.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+        if not rows:
+            return None
+
+        q = np.array(embedding, dtype=np.float32)
+        best_sim, best_resp = 0.0, None
+        for row in rows:
+            if not row.query_embedding:
+                continue
+            v = np.array(row.query_embedding, dtype=np.float32)
+            sim = float(np.dot(q, v))
+            if sim > best_sim:
+                best_sim, best_resp = sim, row.response
+
+        return best_resp if best_sim >= threshold else None
+    except Exception as e:
+        logger.warning("cache semantic lookup failed: %s", e)
+        return None
+
+
+def store_chat_cache(
+    query_hash: str,
+    query_text: str,
+    query_embedding: list[float],
+    response: str,
+    intent: str,
+    ttl_seconds: int,
+) -> None:
+    """Persist a query-response pair. No-op without DB.
+
+    Append-only: duplicate hashes accumulate; lookup uses ``order_by(created_at.desc()).first()``
+    so the latest entry always wins. Expired rows are pruned by the ``expires_at`` filter.
+    """
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return
+    try:
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        with session_scope() as s:
+            s.add(ChatResponseCache(
+                query_hash=query_hash,
+                query_text=query_text,
+                query_embedding=query_embedding,
+                response=response,
+                intent=intent,
+                expires_at=expires_at,
+            ))
+    except Exception as e:
+        logger.warning("cache store failed: %s", e)

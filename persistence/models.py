@@ -159,3 +159,23 @@ class MemoryRow(Base):
     key: Mapped[str] = mapped_column(String, index=True)
     value: Mapped[dict] = mapped_column(JSON)
     ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ChatResponseCache(Base):
+    """Cached ReAct agent responses, keyed by query hash.
+
+    Exact-match lookup uses ``query_hash`` (SHA-256 of normalized text).
+    Semantic lookup loads recent rows and computes cosine similarity in Python
+    against ``query_embedding`` (L2-normalised float list from the embedder).
+    """
+
+    __tablename__ = "chat_response_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query_hash: Mapped[str] = mapped_column(String(64), index=True)
+    query_text: Mapped[str] = mapped_column(Text)
+    query_embedding: Mapped[list] = mapped_column(JSON)   # list[float], L2-normalised
+    response: Mapped[str] = mapped_column(Text)
+    intent: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

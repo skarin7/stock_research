@@ -29,6 +29,8 @@ EXEMPLARS: dict[str, list[str]] = {
         "which pharma stocks look good", "compare TCS and Infosys",
         "find stocks with strong momentum", "any good largecap value stocks",
         "what's scoring well in the snapshot", "give me a shortlist of banks",
+        "tell me about RELIANCE fundamentals",
+        "what sector is HDFC in", "PE ratio of Infosys",
     ],
     "entry_exit": [
         "when should I buy TCS", "good entry price for INFY",

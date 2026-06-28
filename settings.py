@@ -242,6 +242,12 @@ class Settings:
     CHAT_INTENT_MODEL: str = ""               # empty → SCORING_MODEL (cheap fallback classifier)
     CHAT_INTENT_MIN_CONFIDENCE: float = 0.6   # LLM confidence below this → ambiguous
 
+    # --- Prompt response cache ---
+    CHAT_CACHE_ENABLED: bool = True
+    CHAT_CACHE_TTL_SECONDS: int = 1800           # 30 min — market data queries
+    CHAT_CACHE_STABLE_TTL_SECONDS: int = 86400   # 24 h — NSE codes, sector info
+    CHAT_CACHE_SEMANTIC_THRESHOLD: float = 0.95  # very high — only near-identical queries
+
     # --- Market-pulse shock watcher (Part A) ---
     PULSE_INDEX_DROP_PCT: float = 1.5            # NIFTY intraday drop % → alert
     PULSE_VIX_SPIKE_PCT: float = 15.0            # India VIX % spike → alert
@@ -339,6 +345,10 @@ class Settings:
             CHAT_EMBED_MODEL=os.environ.get("CHAT_EMBED_MODEL", "openai/text-embedding-3-small"),
             CHAT_INTENT_MODEL=os.environ.get("CHAT_INTENT_MODEL", ""),
             CHAT_INTENT_MIN_CONFIDENCE=float(os.environ.get("CHAT_INTENT_MIN_CONFIDENCE", "0.6")),
+            CHAT_CACHE_ENABLED=os.environ.get("CHAT_CACHE_ENABLED", "true").lower() not in ("false", "0", "no"),
+            CHAT_CACHE_TTL_SECONDS=int(os.environ.get("CHAT_CACHE_TTL_SECONDS", "1800")),
+            CHAT_CACHE_STABLE_TTL_SECONDS=int(os.environ.get("CHAT_CACHE_STABLE_TTL_SECONDS", "86400")),
+            CHAT_CACHE_SEMANTIC_THRESHOLD=float(os.environ.get("CHAT_CACHE_SEMANTIC_THRESHOLD", "0.95")),
             ENABLE_PULSE_AGENT=_flag("ENABLE_PULSE_AGENT", "false"),
             PULSE_INDEX_DROP_PCT=float(os.environ.get("PULSE_INDEX_DROP_PCT", "1.5")),
             PULSE_VIX_SPIKE_PCT=float(os.environ.get("PULSE_VIX_SPIKE_PCT", "15.0")),

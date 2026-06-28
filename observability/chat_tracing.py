@@ -170,3 +170,44 @@ def trace_intent(route: str, intent: str, score: float, confidence: float | None
         logger.info("intent_routed", extra=extra)
     except Exception:
         pass
+
+
+def trace_chat_turn(
+    chat_id: str,
+    model: str,
+    provider: str,
+    tokens: int,
+    cost_usd: float,
+    status: str,
+    intent: str = "",
+) -> None:
+    """Log a completed chat turn with model/provider to JSON logs and Langfuse. Never raises."""
+    try:
+        logger.info(
+            "chat_turn_done",
+            extra={
+                "chat_id": chat_id,
+                "model": model,
+                "provider": provider,
+                "intent": intent,
+                "tokens": tokens,
+                "cost_usd": round(cost_usd, 6),
+                "status": status,
+            },
+        )
+        lf = _get_langfuse()
+        if lf is not None:
+            lf.trace(
+                name="chat_turn",
+                metadata={
+                    "chat_id": chat_id,
+                    "model": model,
+                    "provider": provider,
+                    "intent": intent,
+                    "tokens": tokens,
+                    "cost_usd": round(cost_usd, 6),
+                    "status": status,
+                },
+            )
+    except Exception:
+        pass
