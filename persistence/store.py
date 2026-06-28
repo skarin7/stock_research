@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from config import SETTINGS
@@ -395,3 +395,102 @@ def recompute(book: PortfolioState) -> PortfolioState:
     book.total_exposure = round(total, 2)
     book.sector_exposure = {k: round(v, 2) for k, v in sectors.items()}
     return book
+
+
+# ── chat response cache (prompt cache; exact + semantic lookup) ─────────────────
+
+def lookup_chat_cache_exact(query_hash: str) -> str | None:
+    """Return cached response for exact hash match, or None. No-op without DB."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    try:
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        with session_scope() as s:
+            row = (
+                s.query(ChatResponseCache)
+                .filter(
+                    ChatResponseCache.query_hash == query_hash,
+                    ChatResponseCache.expires_at > datetime.utcnow(),
+                )
+                .order_by(ChatResponseCache.created_at.desc())
+                .first()
+            )
+            return row.response if row else None
+    except Exception as e:
+        logger.warning("cache exact lookup failed: %s", e)
+        return None
+
+
+def lookup_chat_cache_semantic(
+    embedding: list[float], threshold: float = 0.95, limit: int = 200
+) -> str | None:
+    """Return cached response for semantically similar query, or None.
+
+    Loads up to ``limit`` recent non-expired rows, computes cosine similarity
+    in Python (embeddings are L2-normalised, so dot product = cosine), returns
+    the best match above ``threshold``. No-op without DB or numpy.
+    """
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return None
+    try:
+        import numpy as np
+
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        with session_scope() as s:
+            rows = (
+                s.query(ChatResponseCache)
+                .filter(ChatResponseCache.expires_at > datetime.utcnow())
+                .order_by(ChatResponseCache.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+        if not rows:
+            return None
+
+        q = np.array(embedding, dtype=np.float32)
+        best_sim, best_resp = 0.0, None
+        for row in rows:
+            if not row.query_embedding:
+                continue
+            v = np.array(row.query_embedding, dtype=np.float32)
+            sim = float(np.dot(q, v))
+            if sim > best_sim:
+                best_sim, best_resp = sim, row.response
+
+        return best_resp if best_sim >= threshold else None
+    except Exception as e:
+        logger.warning("cache semantic lookup failed: %s", e)
+        return None
+
+
+def store_chat_cache(
+    query_hash: str,
+    query_text: str,
+    query_embedding: list[float],
+    response: str,
+    intent: str,
+    ttl_seconds: int,
+) -> None:
+    """Persist a query-response pair. No-op without DB."""
+    if not getattr(SETTINGS, "DATABASE_URL", ""):
+        return
+    try:
+        from persistence.db import session_scope
+        from persistence.models import ChatResponseCache
+
+        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        with session_scope() as s:
+            s.add(ChatResponseCache(
+                query_hash=query_hash,
+                query_text=query_text,
+                query_embedding=query_embedding,
+                response=response,
+                intent=intent,
+                expires_at=expires_at,
+            ))
+    except Exception as e:
+        logger.warning("cache store failed: %s", e)
