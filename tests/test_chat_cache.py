@@ -194,12 +194,17 @@ class TestRunTurnCacheIntegration:
                             lambda t: {"intent": "research", "confidence": 0.9, "route": "regex"})
         monkeypatch.setattr("agents.chat.tools.reset_turn_state", lambda: None)
 
+        recorded_statuses = []
+        monkeypatch.setattr(agent_mod, "_record_turn",
+                            lambda *a, **kw: recorded_statuses.append(a[3] if len(a) > 3 else kw.get("status")))
+
         # The agent should NOT be invoked
         try:
             result = agent_mod.run_turn("123", "What is PE of TCS?")
         except AssertionError:
             pytest.fail("agent was invoked on a cache hit")
         assert result == "cached response"
+        assert "CACHE_HIT" in recorded_statuses
 
     def test_cache_miss_stores_result(self, monkeypatch):
         import agents.chat.agent as agent_mod

@@ -192,6 +192,9 @@ def run_turn(chat_id: str, text: str) -> str:
     try:
         from agents.chat import embedder as _emb
         if _emb.available() and text:
+            # NOTE: route_intent() also embeds this text internally for semantic routing.
+            # To avoid the double embed, route_intent would need to return the embedding
+            # in its verdict dict. Deferred — cost is one extra embed call per turn.
             _cached_embedding = _emb.embed([text])[0].tolist()
     except Exception:
         pass  # embedding failure → skip semantic cache tier
@@ -201,6 +204,8 @@ def run_turn(chat_id: str, text: str) -> str:
     )
     if cached_response is not None:
         _record_turn(chat_id, 0, 0.0, "CACHE_HIT")
+        from observability.chat_tracing import trace_chat_turn
+        trace_chat_turn(chat_id, model, provider, 0, 0.0, "CACHE_HIT", routed_intent)
         return cached_response
 
     from agents.chat.tools import reset_turn_state
