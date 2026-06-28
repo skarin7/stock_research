@@ -4,8 +4,6 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.chat.query_filters import QueryFilters, extract_filters
@@ -52,10 +50,16 @@ class TestRelativeDateExtraction:
     def test_last_n_days_numeric(self):
         f = extract_filters("show me the last 14 days performance")
         assert f.lookback_days == 14
+        today = date.today()
+        assert f.date_from == today - timedelta(days=14)
+        assert f.date_to == today
 
     def test_last_n_weeks_numeric(self):
         f = extract_filters("performance over the last 3 weeks")
         assert f.lookback_days == 21
+        today = date.today()
+        assert f.date_from == today - timedelta(days=21)
+        assert f.date_to == today
 
     def test_last_n_months_numeric(self):
         f = extract_filters("growth over the last 2 months")

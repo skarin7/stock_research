@@ -8,7 +8,7 @@ are None (caller treats them as "no filter applied").
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
@@ -68,7 +68,7 @@ class QueryFilters:
     period_label: str = ""
 
     def has_filter(self) -> bool:
-        return any([self.date_from, self.date_to, self.lookback_days])
+        return any((self.date_from, self.date_to, self.lookback_days))
 
     def as_hint(self) -> str:
         """Format as a one-line context hint for the agent."""
@@ -113,8 +113,7 @@ def extract_filters(text: str) -> QueryFilters:
         m = _RE_LAST_N.search(text)
         if m:
             n, unit = int(m.group(1)), m.group(2).lower()
-            days = n * _UNIT_DAYS.get(unit.rstrip("s") + ("s" if not unit.endswith("s") else ""),
-                                      _UNIT_DAYS.get(unit, 1))
+            days = n * _UNIT_DAYS.get(unit, 1)
             return QueryFilters(
                 lookback_days=days,
                 date_from=today - timedelta(days=days),
