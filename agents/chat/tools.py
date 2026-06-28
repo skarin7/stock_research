@@ -133,7 +133,7 @@ def screen_snapshot(
             matched.sort(key=lambda r: r.get("composite_score") or 0, reverse=True)
 
         limit = max(1, min(int(limit), 25))
-        with trace_tool("screen_snapshot", {"sector": sector, "min_score": min_score, "limit": limit}) as span:
+        with trace_tool("screen_snapshot", {"sector": sector, "min_score": min_score, "limit": limit, "as_of": as_of}) as span:
             result = {**meta, "_source": _source,
                       "total_matched": len(matched), "stocks": [_trim(r) for r in matched[:limit]]}
             span.set_output(result)
@@ -376,7 +376,8 @@ def timing(ticker: str, lookback_days: Optional[int] = None) -> dict:
 
         ticker = ticker.upper()
         provider = get_default_provider()
-        candles = provider.get_ohlcv(ticker, days=lookback_days or 400) or []
+        effective_days = max(lookback_days, 260) if lookback_days else 400
+        candles = provider.get_ohlcv(ticker, days=effective_days) or []
         m = compute_metrics(candles)
 
         closes = [float(c[4]) for c in candles]
@@ -461,32 +462,36 @@ def historical_performance(symbols: list[str], from_date: str, to_date: str) -> 
 
         dt_from = _date.fromisoformat(from_date)
         dt_to = _date.fromisoformat(to_date)
+
+        if dt_from > dt_to:
+            return {"error": f"from_date {from_date} is after to_date {to_date}", "_source": "ohlcv_candles"}
+
         days_needed = (dt_to - dt_from).days + 30  # buffer for trading-day gaps
 
-        results = {}
-        for sym in syms:
-            try:
-                candles = provider.get_ohlcv(sym, days=days_needed) or []
-                # candles: list of [date_str, open, high, low, close, volume]
-                in_range = [c for c in candles
-                            if from_date <= str(c[0])[:10] <= to_date]
-                if len(in_range) < 2:
-                    results[sym] = {"error": "insufficient candles in range"}
-                    continue
-                open_price = float(in_range[0][1])
-                close_price = float(in_range[-1][4])
-                pct_change = round((close_price - open_price) / open_price * 100, 2) if open_price else None
-                results[sym] = {
-                    "from_date": str(in_range[0][0])[:10],
-                    "to_date": str(in_range[-1][0])[:10],
-                    "open": open_price,
-                    "close": close_price,
-                    "pct_change": pct_change,
-                }
-            except Exception as e:
-                results[sym] = {"error": str(e)}
-
         with trace_tool("historical_performance", {"symbols": syms, "from_date": from_date, "to_date": to_date}) as span:
+            results = {}
+            for sym in syms:
+                try:
+                    candles = provider.get_ohlcv(sym, days=days_needed) or []
+                    # candles: list of [date_str, open, high, low, close, volume]
+                    in_range = [c for c in candles
+                                if from_date <= str(c[0])[:10] <= to_date]
+                    if len(in_range) < 2:
+                        results[sym] = {"error": "insufficient candles in range"}
+                        continue
+                    open_price = float(in_range[0][1])
+                    close_price = float(in_range[-1][4])
+                    pct_change = round((close_price - open_price) / open_price * 100, 2) if open_price else None
+                    results[sym] = {
+                        "from_date": str(in_range[0][0])[:10],
+                        "to_date": str(in_range[-1][0])[:10],
+                        "open": open_price,
+                        "close": close_price,
+                        "pct_change": pct_change,
+                    }
+                except Exception as e:
+                    results[sym] = {"error": str(e)}
+
             result = {"results": results, "_source": "ohlcv_candles",
                       "from_date": from_date, "to_date": to_date}
             span.set_output(result)
