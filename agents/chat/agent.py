@@ -23,6 +23,14 @@ chatting with your user on Telegram.
 Data discipline:
 - Start with screen_snapshot (cached nightly scored universe) to find candidates; \
 use live_quote / fetch_news only on the shortlist for freshness.
+- When the user mentions a company by name (e.g. "AU Small Finance Bank", "Ola Electric", \
+"Bajaj Finance"), ALWAYS call screen_snapshot(name="<company name>") first — it returns the \
+NSE symbol, score, sector, and fundamentals. Never use the company name as a ticker symbol \
+in live_quote or timing — first get the symbol from screen_snapshot(name=...). \
+If screen_snapshot returns no match, answer from your training knowledge and clearly state: \
+"Not in today's scored universe — from general knowledge: <symbol>. Please verify on \
+NSE/BSE directly." Note: BSE numeric codes are not in any tool; answer those from training \
+knowledge with the above disclaimer.
 - Use score_subset only when fresh scores genuinely change the answer (it costs money). \
 deep_dive is for one named stock the user wants examined closely — at most once per question.
 - For "best time to buy/sell" / entry-exit questions, call timing(ticker) for the numbers \
@@ -133,6 +141,14 @@ def _record_intent(chat_id: str, verdict: dict) -> None:
         logger.debug("could not record intent: %s", e)
 
 
+def _resolved_model() -> str:
+    return getattr(SETTINGS, "CHAT_MODEL", "") or getattr(SETTINGS, "REPORT_MODEL", "unknown")
+
+
+def _resolved_provider() -> str:
+    return getattr(SETTINGS, "LLM_PROVIDER", "unknown")
+
+
 def run_turn(chat_id: str, text: str) -> str:
     """One user message in → one reply out. Never raises."""
     from agents.supervisor import kill_switch_active
@@ -141,11 +157,14 @@ def run_turn(chat_id: str, text: str) -> str:
         return "⛔ Kill-switch is engaged — the agent is halted. Clear it with run_agents.py --unkill."
 
     text = (text or "").strip()
+    model = _resolved_model()
+    provider = _resolved_provider()
 
     # Tiered intent router (semantic cosine → LLM fallback) in front of the
     # expensive ReAct loop — a core front door, self-gating on embedding
     # availability. Fail-open: any error → fall through to the agent.
     hint = ""
+    routed_intent = ""
     if text:
         try:
             from agents.chat.intent import (
@@ -153,19 +172,36 @@ def run_turn(chat_id: str, text: str) -> str:
             )
 
             verdict = route_intent(text)
-            intent = verdict["intent"]
+            routed_intent = verdict["intent"]
             _record_intent(chat_id, verdict)
 
-            if intent in CANNED:
+            if routed_intent in CANNED:
                 _record_turn(chat_id, 0, 0.0, "COMPLETED")
-                return CANNED[intent]
-            if intent == "ambiguous":
+                return CANNED[routed_intent]
+            if routed_intent == "ambiguous":
                 _record_turn(chat_id, 0, 0.0, "COMPLETED")
                 return clarify_reply()
-            if is_research_intent(intent):
-                hint = f"(intent: {intent})\n"
+            if is_research_intent(routed_intent):
+                hint = f"(intent: {routed_intent})\n"
         except Exception:
             logger.exception("intent routing failed — proceeding to agent")
+
+    # Prompt response cache — check before agent, store after
+    _cached_embedding: list[float] | None = None
+    from agents.chat import cache as _cache
+    try:
+        from agents.chat import embedder as _emb
+        if _emb.available() and text:
+            _cached_embedding = _emb.embed([text])[0].tolist()
+    except Exception:
+        pass  # embedding failure → skip semantic cache tier
+
+    cached_response = _cache.check(
+        text=text, intent=routed_intent, embedding=_cached_embedding
+    )
+    if cached_response is not None:
+        _record_turn(chat_id, 0, 0.0, "CACHE_HIT")
+        return cached_response
 
     from agents.chat.tools import reset_turn_state
 
@@ -182,14 +218,21 @@ def run_turn(chat_id: str, text: str) -> str:
     except GraphRecursionError:
         logger.warning("chat turn hit the tool-call cap")
         _record_turn(chat_id, 0, 0.0, "MAX_ROUNDS")
+        from observability.chat_tracing import trace_chat_turn
+        trace_chat_turn(chat_id, model, provider, 0, 0.0, "MAX_ROUNDS", routed_intent)
         return ("I hit my research-step limit on that one. "
                 "Try narrowing the question (fewer stocks or one specific filter).")
     except Exception:
         logger.exception("chat turn failed")
         _record_turn(chat_id, 0, 0.0, "FAILED")
+        from observability.chat_tracing import trace_chat_turn
+        trace_chat_turn(chat_id, model, provider, 0, 0.0, "FAILED", routed_intent)
         return "Something went wrong while researching that — please try again."
 
     tokens, cost_usd = _turn_tokens(result)
     _record_turn(chat_id, tokens, cost_usd, "COMPLETED")
-    logger.info("chat turn done (chat=%s, tokens=%d, cost=$%.4f)", chat_id, tokens, cost_usd)
-    return _reply_from(result)
+    from observability.chat_tracing import trace_chat_turn
+    trace_chat_turn(chat_id, model, provider, tokens, cost_usd, "COMPLETED", routed_intent)
+    reply = _reply_from(result)
+    _cache.put(text=text, intent=routed_intent, embedding=_cached_embedding, response=reply)
+    return reply
