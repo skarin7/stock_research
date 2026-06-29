@@ -22,7 +22,7 @@ from persistence.store import load_portfolio
 logger = logging.getLogger("agents.portfolio")
 
 
-@agent_node("portfolio", enabled_flag="ENABLE_PORTFOLIO_AGENT")
+@agent_node("portfolio", requires_trading=True)
 def portfolio_node(state: AgentState) -> dict:
     proposals = list(state.get("proposals") or [])
     if not proposals:

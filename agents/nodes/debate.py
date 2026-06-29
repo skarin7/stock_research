@@ -161,7 +161,7 @@ def _build_context(scorecard, stock, macro: str) -> str:
 
 # ── outer node ────────────────────────────────────────────────────────────────
 
-@agent_node("debate", enabled_flag="ENABLE_DEBATE_AGENT")
+@agent_node("debate", requires_trading=True)
 def debate_node(state: AgentState) -> dict:
     ranking = state.get("ranking")
     if ranking is None or not ranking.top:

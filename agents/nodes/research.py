@@ -27,7 +27,7 @@ def _load_skip_list(skip_path: Path) -> dict:
     return {}
 
 
-@agent_node("research", enabled_flag="ENABLE_RESEARCH_AGENT")
+@agent_node("research")
 def research_node(state: AgentState) -> dict:
     report_date = date.fromisoformat(state["report_date"])
     dry_run = state.get("dry_run", False)

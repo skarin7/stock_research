@@ -6,22 +6,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import agents.nodes.base as base_mod  # noqa: E402
 from agents.state import RunStatus  # noqa: E402
 
 
-def _make_settings(trading_mode):
-    from settings import Settings
-    return Settings(TRADING_MODE=trading_mode)
-
-
 def test_requires_trading_skips_when_off(monkeypatch):
-    import config
-    monkeypatch.setattr(config, "SETTINGS", _make_settings("off"))
-
-    # Re-import to pick up monkeypatched SETTINGS
-    import importlib
-    import agents.nodes.base as base_mod
-    importlib.reload(base_mod)
+    # Patch trading_enabled directly on the base module so we avoid
+    # importlib.reload (which breaks when other test files stub sys.modules["config"]).
+    monkeypatch.setattr(base_mod, "trading_enabled", lambda: False)
 
     @base_mod.agent_node("test_trade", requires_trading=True)
     def my_node(state):
@@ -29,15 +21,11 @@ def test_requires_trading_skips_when_off(monkeypatch):
 
     result = my_node({"run_id": "r1", "status": RunStatus.RUNNING})
     assert "executed" not in result
+    assert result["audit"][0]["detail"] == "skipped (trading off)"
 
 
 def test_requires_trading_runs_when_paper(monkeypatch):
-    import config
-    monkeypatch.setattr(config, "SETTINGS", _make_settings("paper"))
-
-    import importlib
-    import agents.nodes.base as base_mod
-    importlib.reload(base_mod)
+    monkeypatch.setattr(base_mod, "trading_enabled", lambda: True)
 
     @base_mod.agent_node("test_trade", requires_trading=True)
     def my_node(state):
@@ -48,12 +36,7 @@ def test_requires_trading_runs_when_paper(monkeypatch):
 
 
 def test_no_requires_trading_always_runs(monkeypatch):
-    import config
-    monkeypatch.setattr(config, "SETTINGS", _make_settings("off"))
-
-    import importlib
-    import agents.nodes.base as base_mod
-    importlib.reload(base_mod)
+    monkeypatch.setattr(base_mod, "trading_enabled", lambda: False)
 
     @base_mod.agent_node("always_on")
     def my_node(state):

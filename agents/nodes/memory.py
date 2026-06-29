@@ -9,7 +9,7 @@ Runs after finalize (which has already appended the day's backtest). This node:
 Long-term memory = append-only store (persistence.store); short-term = run state.
 Other agents read it via persistence.store.recent_calls / latest_signal_perf
 (feeding it back into scoring weights is a future tuning step). Gated by
-ENABLE_MEMORY_AGENT.
+Enabled unconditionally (no trading gate needed — read-only side-effects).
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _signal_performance() -> dict:
         return {}
 
 
-@agent_node("memory", enabled_flag="ENABLE_MEMORY_AGENT")
+@agent_node("memory")
 def memory_node(state: AgentState) -> dict:
     report_date = state.get("report_date", "")
     run_id = state.get("run_id", "")

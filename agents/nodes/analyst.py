@@ -18,7 +18,7 @@ from agents.state import AgentState, RunStatus
 logger = logging.getLogger("agents.analyst")
 
 
-@agent_node("analyst", enabled_flag="ENABLE_ANALYST_AGENT")
+@agent_node("analyst")
 def analyst_node(state: AgentState) -> dict:
     enriched = state.get("enriched")
     if enriched is None or not enriched.stocks:

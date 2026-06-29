@@ -4,8 +4,7 @@ Default-deny by construction: every order path re-checks, at call time, that
 ALL of these hold before touching the SDK (defense in depth — the trading node
 checks too):
 
-    AGENT_MODE == "live"  AND  ENABLE_LIVE_TRADING  AND  GROWW_TRADING_ENABLED
-    AND no kill-switch.
+    TRADING_MODE == "live"  AND  no kill-switch.
 
 In paper mode this module is never reached (the trading node simulates fills).
 Auth reuses the TOTP client from enrichment.market_data.groww.
@@ -19,7 +18,7 @@ from __future__ import annotations
 
 import logging
 
-from config import SETTINGS
+from config import SETTINGS, live_trading
 
 from agents.supervisor import kill_switch_active
 
@@ -35,10 +34,8 @@ def _gate_check(mode: str) -> None:
         raise BrokerRefused("kill-switch active")
     if mode != "live":
         raise BrokerRefused(f"mode={mode!r} is not 'live'")
-    if not getattr(SETTINGS, "ENABLE_LIVE_TRADING", False):
-        raise BrokerRefused("ENABLE_LIVE_TRADING is false")
-    if not getattr(SETTINGS, "GROWW_TRADING_ENABLED", False):
-        raise BrokerRefused("GROWW_TRADING_ENABLED is false")
+    if not live_trading():
+        raise BrokerRefused("TRADING_MODE != live")
 
 
 def _trading_client():

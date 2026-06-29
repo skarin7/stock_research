@@ -21,7 +21,7 @@ from persistence.store import load_portfolio
 logger = logging.getLogger("agents.risk")
 
 
-@agent_node("risk", enabled_flag="ENABLE_RISK_AGENT")
+@agent_node("risk", requires_trading=True)
 def risk_node(state: AgentState) -> dict:
     convictions = state.get("convictions") or []
     if not convictions:
