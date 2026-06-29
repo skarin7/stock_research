@@ -161,6 +161,21 @@ class MemoryRow(Base):
     ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PulseStateRow(Base):
+    """Single-row table for the market-pulse agent's debounce state.
+
+    The pulse agent runs every 1-2 minutes on Cloud Run (scale-to-zero).
+    Without a persistent store the debounce flags reset on every cold start,
+    causing repeated alerts.  One shared row (id=1) survives restarts.
+    """
+
+    __tablename__ = "pulse_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # always 1
+    state_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ChatResponseCache(Base):
     """Cached ReAct agent responses, keyed by query hash.
 
