@@ -43,12 +43,14 @@ openrouter_api_key       = "sk-or-..."
 openrouter_scoring_model = "deepseek/deepseek-chat"
 openrouter_report_model  = "deepseek/deepseek-chat"
 
-# --- Chat agent: Telegram webhook Cloud Run Service (opt-in, scales to zero = no idle cost) ---
-# enable_chat_agent       = true
-# telegram_webhook_secret = "some-random-string"   # pick any secret, used to verify Telegram calls
-# After deploy, register the webhook once:
-#   python scripts/set_webhook.py https://<chat-service-url>/telegram/webhook
+# --- Chat + scheduler: both run on the VM via systemd (no extra config needed) ---
+# Telegram webhook secret — nginx passes this header to uvicorn for Telegram to verify.
+# telegram_webhook_secret = "some-random-string"
+# After first deploy, register the webhook once:
+#   python scripts/set_webhook.py https://<vm-ip>/telegram/webhook
 
-# --- Monitoring: second job + market-hours scheduler (opt-in) ---
-# enable_monitoring = true
-# monitor_schedule  = "*/5 3-10 * * 1-5"   # ~every 5 min, 08:30-16:25 IST, Mon-Fri
+# --- OpenRouter chat model (used by agents/chat/agent.py) ---
+# openrouter_chat_model = "deepseek/deepseek-chat"
+
+# --- VM instance schedule (market hours only, set false to keep VM always-on) ---
+# enable_schedule = false   # disable to test outside market hours, then re-enable

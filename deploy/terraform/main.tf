@@ -1,19 +1,6 @@
 locals {
-  image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.repo_name}/${var.job_name}:${var.image_tag}"
-
-  scheduler_sa = "stock-intelligence-scheduler"
-  job_sa       = "stock-intelligence-sa"
-
-  # Cloud Run Admin v1 endpoint to trigger a job execution (matches deploy/setup_gcp.sh).
-  job_run_uri = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${var.job_name}:run"
-
-  # All env vars on the job. Empties are filtered out so optional creds don't
-  # create blank env entries. The app reads these via config.py.
-  chat_service_name = var.chat_service_name
-  chat_env = merge(local.env_vars, {
-    TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret
-  })
-
+  # All env vars written to /opt/stock-research/.env on the VM.
+  # Empties are filtered so optional creds don't create blank entries.
   env_all = merge(
     {
       ANTHROPIC_API_KEY          = var.anthropic_api_key
@@ -29,6 +16,7 @@ locals {
       GROWW_TOKEN_ENC_KEY        = var.groww_token_enc_key
       TELEGRAM_BOT_TOKEN         = var.telegram_bot_token
       TELEGRAM_CHAT_ID           = var.telegram_chat_id
+      TELEGRAM_WEBHOOK_SECRET    = var.telegram_webhook_secret
       SCREENER_EMAIL             = var.screener_email
       SCREENER_PASSWORD          = var.screener_password
       SCREENER_SCREEN_ID         = var.screener_screen_id
@@ -37,174 +25,67 @@ locals {
       TRADING_MODE               = var.trading_mode
       LLM_PROVIDER               = var.llm_provider
       OPENROUTER_API_KEY         = var.openrouter_api_key
+      OPENROUTER_BASE_URL        = var.openrouter_base_url
       OPENROUTER_SCORING_MODEL   = var.openrouter_scoring_model
       OPENROUTER_REPORT_MODEL    = var.openrouter_report_model
+      OPENROUTER_CHAT_MODEL      = var.openrouter_chat_model
+      TAVILY_API_KEY             = var.tavily_api_key
     },
     var.extra_env,
   )
 
   env_vars = { for k, v in local.env_all : k => v if v != "" }
+
+  # Rendered .env file written to the VM on first boot.
+  # To update config after provisioning: edit /opt/stock-research/.env on the VM
+  # and restart services: sudo systemctl restart stock-chat stock-scheduler
+  dotenv = join("\n", [for k, v in local.env_vars : "${k}=${v}"])
 }
 
 # ── APIs ────────────────────────────────────────────────────────────────────────
 resource "google_project_service" "apis" {
   for_each = toset([
-    "run.googleapis.com",
-    "cloudscheduler.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "cloudbuild.googleapis.com",
     "compute.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
 }
 
-# ── Artifact Registry ─────────────────────────────────────────────────────────
-# If the repo already exists (created by deploy/setup_gcp.sh), import it once:
-#   terraform import google_artifact_registry_repository.repo \
-#     projects/<project>/locations/<region>/repositories/<repo_name>
-resource "google_artifact_registry_repository" "repo" {
-  location      = var.region
-  repository_id = var.repo_name
-  format        = "DOCKER"
-  description   = "Stock intelligence container images"
+# ── Compute Engine VM ─────────────────────────────────────────────────────────
 
-  depends_on = [google_project_service.apis]
-}
+# Instance schedule: VM runs during market hours only to save cost.
+# All times UTC (IST = UTC+5:30).
+#
+#   Monday   : start 23:30 UTC Sun (= 05:00 IST Mon), stop 10:30 UTC Mon (= 16:00 IST)
+#   Tue–Fri  : start 03:00 UTC    (= 08:30 IST),      stop 10:30 UTC     (= 16:00 IST)
+#
+# GCP allows only one vm_start_schedule + vm_stop_schedule per policy,
+# so Monday (early start) gets its own policy.
 
-# ── Service accounts ──────────────────────────────────────────────────────────
-resource "google_service_account" "job" {
-  account_id   = local.job_sa
-  display_name = "Stock Intelligence Cloud Run"
-}
+resource "google_compute_resource_policy" "vm_schedule_mon" {
+  count  = var.enable_schedule ? 1 : 0
+  name   = "${var.job_name}-vm-schedule-mon"
+  region = var.region
 
-resource "google_service_account" "scheduler" {
-  account_id   = local.scheduler_sa
-  display_name = "Stock Intelligence Scheduler"
-}
-
-# ── Cloud Run Job ─────────────────────────────────────────────────────────────
-resource "google_cloud_run_v2_job" "job" {
-  name     = var.job_name
-  location = var.region
-
-  deletion_protection = false
-
-  template {
-    template {
-      service_account = google_service_account.job.email
-      timeout         = var.task_timeout
-      max_retries     = 1
-
-      containers {
-        image   = local.image
-        command = var.job_command
-        args    = var.job_args
-
-        resources {
-          limits = {
-            cpu    = var.cpu
-            memory = var.memory
-          }
-        }
-
-        dynamic "env" {
-          for_each = local.env_vars
-          content {
-            name  = env.key
-            value = env.value
-          }
-        }
-      }
-    }
+  instance_schedule_policy {
+    vm_start_schedule { schedule = "30 23 * * 0" } # 23:30 UTC Sun = 05:00 IST Mon
+    vm_stop_schedule  { schedule = "30 10 * * 1" } # 10:30 UTC Mon = 16:00 IST Mon
+    time_zone = "UTC"
   }
-
-  depends_on = [google_project_service.apis]
 }
 
-# Let the scheduler SA trigger this job.
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.job.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler.email}"
-}
+resource "google_compute_resource_policy" "vm_schedule_tue_fri" {
+  count  = var.enable_schedule ? 1 : 0
+  name   = "${var.job_name}-vm-schedule-tue-fri"
+  region = var.region
 
-# ── Cloud Scheduler (daily trigger) ───────────────────────────────────────────
-resource "google_cloud_scheduler_job" "daily" {
-  name      = "${var.job_name}-daily"
-  region    = var.region
-  schedule  = var.schedule
-  time_zone = var.time_zone
-
-  http_target {
-    http_method = "POST"
-    uri         = local.job_run_uri
-    body        = base64encode("{}")
-    headers     = { "Content-Type" = "application/json" }
-
-    oauth_token {
-      service_account_email = google_service_account.scheduler.email
-    }
+  instance_schedule_policy {
+    vm_start_schedule { schedule = "0 3 * * 2-5"  } # 03:00 UTC Tue-Fri = 08:30 IST
+    vm_stop_schedule  { schedule = "30 10 * * 2-5" } # 10:30 UTC Tue-Fri = 16:00 IST
+    time_zone = "UTC"
   }
-
-  depends_on = [
-    google_project_service.apis,
-    google_cloud_run_v2_job_iam_member.scheduler_invoker,
-  ]
 }
 
-# ── Chat agent Cloud Run Service (Telegram webhook) ───────────────────────────
-resource "google_cloud_run_v2_service" "chat" {
-  name     = local.chat_service_name
-  location = var.region
-
-  deletion_protection = false
-
-  template {
-    service_account = google_service_account.job.email
-
-    timeout = "300s"
-
-    scaling {
-      min_instance_count = 0
-      max_instance_count = 1
-    }
-
-    containers {
-      image   = local.image
-      command = ["python"]
-      args    = ["-m", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8080"]
-      ports { container_port = 8080 }
-
-      resources {
-        limits = { cpu = "1", memory = var.memory }
-      }
-
-      dynamic "env" {
-        for_each = local.chat_env
-        content {
-          name  = env.key
-          value = env.value
-        }
-      }
-    }
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-# Allow unauthenticated invocations (Telegram sends plain HTTPS).
-resource "google_cloud_run_v2_service_iam_member" "chat_public" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.chat.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
-
-# ── Compute Engine VM (replaces Cloud Run Jobs for scheduled cron) ────────────
 resource "google_compute_address" "vm_ip" {
   name   = "${var.job_name}-vm-ip"
   region = var.region
@@ -254,9 +135,21 @@ resource "google_compute_instance" "vm" {
       if [ ! -d /opt/stock-research/.git ]; then
         git clone https://github.com/skarin7/stock_research /opt/stock-research
       fi
+      # Write .env from Terraform vars on first boot only.
+      # To push new vars after provisioning: edit .env on VM + restart services.
+      if [ ! -f /opt/stock-research/.env ]; then
+        cat > /opt/stock-research/.env <<'DOTENV'
+${local.dotenv}
+DOTENV
+      fi
       bash /opt/stock-research/deploy/vm/setup.sh
     STARTUP
   }
+
+  resource_policies = var.enable_schedule ? [
+    google_compute_resource_policy.vm_schedule_mon[0].id,
+    google_compute_resource_policy.vm_schedule_tue_fri[0].id,
+  ] : []
 
   depends_on = [google_project_service.apis]
 }

@@ -14,10 +14,17 @@ log = logging.getLogger("scheduler")
 
 POLL_INTERVAL = 30  # seconds
 
+# Seeded into the DB on first run if the schedules table is empty.
+# Override by editing the schedules table in Postgres directly.
+# All cron expressions are evaluated in UTC (VM runs in UTC).
+#
+#   "30 6 * * 1-5"   →  06:30 UTC = 12:00 IST, Mon–Fri
+#   "30 18 * * 1-5"  →  18:30 UTC = 00:00 IST, Mon–Fri (midnight, next-day watchlist)
+#   "*/3 * * * 1-5"  →  every 3 min, Mon–Fri (intraday market watch)
 _DEFAULT_SCHEDULES = [
-    {"name": "research", "mode": "research", "cron_expr": "30 6 * * 1-5"},
-    {"name": "intraday", "mode": "intraday", "cron_expr": "30 18 * * 1-5"},
-    {"name": "watch",    "mode": "watch",    "cron_expr": "*/3 * * * 1-5"},
+    {"name": "research", "mode": "research", "cron_expr": "30 6 * * 1-5"},   # 12:00 IST Mon-Fri
+    {"name": "intraday", "mode": "intraday", "cron_expr": "30 18 * * 1-5"},  # 00:00 IST Mon-Fri
+    {"name": "watch",    "mode": "watch",    "cron_expr": "*/3 * * * 1-5"},  # every 3 min Mon-Fri
 ]
 
 _running = True

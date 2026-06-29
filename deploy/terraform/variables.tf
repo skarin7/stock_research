@@ -97,6 +97,12 @@ variable "vm_ssh_pub_key" {
   default     = ""
 }
 
+variable "enable_schedule" {
+  type        = bool
+  description = "Attach market-hours instance schedule to the VM. Set false to keep VM always-on (useful for testing outside market hours)."
+  default     = true
+}
+
 # ── LLM provider (anthropic default; openrouter for cheap models) ───────────────
 variable "llm_provider" {
   type    = string
@@ -109,6 +115,11 @@ variable "openrouter_scoring_model" {
 }
 
 variable "openrouter_report_model" {
+  type    = string
+  default = "deepseek/deepseek-chat"
+}
+
+variable "openrouter_chat_model" {
   type    = string
   default = "deepseek/deepseek-chat"
 }

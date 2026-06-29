@@ -282,45 +282,64 @@ No `.env` needed — tests mock `config` entirely and use `MemorySaver` for the 
 
 ## Deployment
 
-### Terraform (single entrypoint, serverless)
+Everything runs on a single **GCP `e2-small` VM**. Two systemd services: `stock-scheduler` (Python cron) and `stock-chat` (Telegram webhook via uvicorn + nginx).
 
-`deploy/deploy.sh` provisions the whole serverless stack and deploys in one command:
-
-```bash
-cp deploy/terraform/terraform.tfvars.example deploy/terraform/terraform.tfvars   # fill in
-bash deploy/deploy.sh            # build image + terraform apply
-bash deploy/deploy.sh --plan     # preview only
-bash deploy/deploy.sh --run      # deploy, then trigger one run
-```
-
-It creates Artifact Registry, a Cloud Run **Job** (runs `run_agents.py --mode research`), a daily Cloud Scheduler trigger, and service accounts. Secrets (Anthropic/OpenRouter keys, Neon `DATABASE_URL`, Langfuse keys) are injected as env vars — **no Secret Manager** (keeps cost near zero). Nothing runs 24/7. Terraform state holds secrets, so it is gitignored.
-
-**Already deployed via `setup_gcp.sh`?** Those gcloud-created resources share names with Terraform's, so a fresh `apply` would conflict. Adopt them into state first (zero cost, no teardown):
+### First-time setup
 
 ```bash
-cd deploy/terraform && terraform init && bash import.sh && terraform plan
+cp deploy/terraform/terraform.tfvars.example deploy/terraform/terraform.tfvars  # fill in secrets
+bash deploy/deploy.sh
 ```
 
-### gcloud (legacy)
+### Every deploy (code changes or infra changes)
 
 ```bash
-bash deploy/setup_gcp.sh                       # one-time
-gcloud builds submit --config cloudbuild.yaml  # build + push
+git push origin main
+bash deploy/deploy.sh
 ```
 
-The image is `python:3.12-slim` + `gcc`, `libxml2-dev`, `libxslt-dev` (for lxml).
+That's it. The script auto-detects whether terraform needs to run (any `.tf` / `.tfvars` changed) and always SSHes into the VM to `git pull` + restart services.
+
+### Testing outside market hours (VM is stopped)
+
+```bash
+bash deploy/deploy.sh --no-schedule   # VM stays up, no auto-stop
+```
+
+Re-enable the schedule when done:
+```bash
+bash deploy/deploy.sh                 # re-attaches market-hours schedule
+```
+
+### VM schedule (market hours only, to save cost)
+
+| Day | Start (IST) | Stop (IST) |
+|-----|-------------|------------|
+| Monday | 05:00 (early — post-weekend) | 16:00 |
+| Tue–Fri | 08:30 | 16:00 |
+| Sat–Sun | off | — |
+
+### Scheduler
+
+`scheduler/runner.py` polls Postgres every 30 s. Default schedules:
+
+| Name | Cron (UTC) | IST |
+|------|-----------|-----|
+| research | `30 6 * * 1-5` | 12:00 noon |
+| intraday | `30 18 * * 1-5` | midnight |
+| watch | `*/3 * * * 1-5` | every 3 min |
 
 ---
 
 ## Cost
 
-For a once-daily research run, infra is essentially free (Cloud Run Job scales to zero; Neon/Langfuse/Grafana free tiers). The bill is dominated by LLM tokens:
+VM: ~$5–7/month (`e2-small`, ~55 hours/week runtime — off nights and weekends). LLM tokens:
 
-- **Research mode (Claude):** ~$6–12/month.
-- **+ Debate on Claude Sonnet:** ~$35–45/month (debate fan-out is the main lever — tune `DEBATE_TOP_N` / `MAX_DEBATE_ROUNDS`).
-- **+ Debate on OpenRouter:** ~$5–10/month total.
+- **Research (OpenRouter/DeepSeek):** ~$1–3/month
+- **Research (Claude Haiku/Sonnet):** ~$6–12/month
+- **+ Debate (Claude Sonnet):** ~$35–45/month (tune `DEBATE_TOP_N` / `MAX_DEBATE_ROUNDS`)
 
-`MAX_RUN_COST_USD` hard-stops a runaway run. A 24/7 monitoring *service* would break the scale-to-zero model — monitoring is therefore designed as a **scheduled market-hours job**, not an always-on service.
+`MAX_RUN_COST_USD` hard-stops a runaway run.
 
 ---
 
