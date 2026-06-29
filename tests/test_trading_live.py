@@ -13,9 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 _cfg = types.SimpleNamespace(
     ANTHROPIC_API_KEY="test",
-    ENABLE_TRADING_AGENT=True,
-    ENABLE_LIVE_TRADING=False,
-    GROWW_TRADING_ENABLED=True,
+    TRADING_MODE="paper",
     KILL_SWITCH=False,
     KILL_SWITCH_FILE="/tmp/__no_such_killswitch__.flag",
     MAX_RUN_COST_USD=5.0,
@@ -27,7 +25,15 @@ _cfg = types.SimpleNamespace(
     PROPOSALS_FILE="/tmp/__prop__.json",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+
+# Config mock must include both SETTINGS and helper functions that the modules import.
+# live_trading() derives its answer from _cfg.TRADING_MODE so tests can control it
+# by mutating _cfg.TRADING_MODE.
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    trading_enabled=lambda: _cfg.TRADING_MODE in ("paper", "live"),
+    live_trading=lambda: _cfg.TRADING_MODE == "live",
+)
 
 from agents.broker import groww_trader as broker_mod  # noqa: E402
 from agents.contracts import ProposalStatus, TradeProposal  # noqa: E402
@@ -41,11 +47,18 @@ from persistence import store as store_mod  # noqa: E402
 def _bind_config(tmp_path):
     _cfg.PROPOSALS_FILE = str(tmp_path / "proposals.json")
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
-    _cfg.ENABLE_LIVE_TRADING = False
+    _cfg.TRADING_MODE = "paper"
     _cfg.KILL_SWITCH = False
     _cfg.APPROVAL_TIMEOUT_SEC = 900
     for mod in (_sup, _base, trade_mod, store_mod, broker_mod):
         mod.SETTINGS = _cfg
+    # Rebind live_trading wherever imported at module level (previous test files may
+    # have injected a different lambda via their own sys.modules["config"] mock).
+    _live_trading = lambda: _cfg.TRADING_MODE == "live"
+    _trading_enabled = lambda: _cfg.TRADING_MODE in ("paper", "live")
+    trade_mod.live_trading = _live_trading
+    broker_mod.live_trading = _live_trading
+    _base.trading_enabled = _trading_enabled
     yield
 
 
@@ -61,23 +74,32 @@ def _state(proposals):
 
 # ── broker gates (default-deny) ─────────────────────────────────────────────────
 
-def test_gate_check_blocks_when_flags_off():
-    _cfg.ENABLE_LIVE_TRADING = False
+def test_gate_check_blocks_when_trading_mode_not_live():
+    _cfg.TRADING_MODE = "paper"
     with pytest.raises(broker_mod.BrokerRefused):
-        broker_mod._gate_check("live")
-    _cfg.ENABLE_LIVE_TRADING = True
+        broker_mod._gate_check("live")      # live_trading() returns False → refused
+
+
+def test_gate_check_blocks_wrong_mode_arg():
+    _cfg.TRADING_MODE = "live"
     with pytest.raises(broker_mod.BrokerRefused):
-        broker_mod._gate_check("paper")          # wrong mode
-    _cfg.GROWW_TRADING_ENABLED = False
+        broker_mod._gate_check("paper")     # mode arg != "live" → refused
+
+
+def test_gate_check_passes_when_live():
+    # Should NOT raise — just verifies the gate logic passes without SDK call
+    _cfg.TRADING_MODE = "live"
+    _cfg.KILL_SWITCH = False
+    # _gate_check would pass; we don't call place_order (that needs SDK)
+    # Just assert no BrokerRefused
     try:
-        with pytest.raises(broker_mod.BrokerRefused):
-            broker_mod._gate_check("live")       # broker disabled
-    finally:
-        _cfg.GROWW_TRADING_ENABLED = True
+        broker_mod._gate_check("live")
+    except broker_mod.BrokerRefused as e:
+        pytest.fail(f"gate_check raised unexpectedly: {e}")
 
 
 def test_gate_check_blocks_under_kill_switch():
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     _cfg.KILL_SWITCH = True
     try:
         with pytest.raises(broker_mod.BrokerRefused):
@@ -98,7 +120,7 @@ def test_place_order_idempotent_on_existing_order_id():
 def test_live_default_deny_places_nothing(monkeypatch):
     called = []
     monkeypatch.setattr(broker_mod, "place_order", lambda *a, **k: called.append(1))
-    _cfg.ENABLE_LIVE_TRADING = False
+    _cfg.TRADING_MODE = "paper"   # live_trading() returns False → default-deny
     p = _approved()
     out = trade_mod.trading_node(_state([p]))
     assert "proposals" not in out                 # no mutation emitted
@@ -107,7 +129,7 @@ def test_live_default_deny_places_nothing(monkeypatch):
 
 
 def test_live_approve_places_order(monkeypatch):
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     p = _approved()
     monkeypatch.setattr(trade_mod, "_interrupt", lambda payload: {p.proposal_id: "approve"})
     monkeypatch.setattr(broker_mod, "place_order", lambda prop, mode="live": ("OID1", "placed"))
@@ -122,7 +144,7 @@ def test_live_approve_places_order(monkeypatch):
 
 
 def test_live_reject_places_nothing(monkeypatch):
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     p = _approved()
     called = []
     monkeypatch.setattr(trade_mod, "_interrupt", lambda payload: {p.proposal_id: "reject"})
@@ -134,7 +156,7 @@ def test_live_reject_places_nothing(monkeypatch):
 
 
 def test_live_expired_before_decision(monkeypatch):
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     _cfg.APPROVAL_TIMEOUT_SEC = -1                # already expired by the time we resume
     p = _approved()
     called = []

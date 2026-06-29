@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 _cfg = types.SimpleNamespace(
     ANTHROPIC_API_KEY="test",
-    ENABLE_DEBATE_AGENT=True,
+    TRADING_MODE="paper",
     KILL_SWITCH=False,
     KILL_SWITCH_FILE="/tmp/__no_such_killswitch__.flag",
     MAX_RUN_COST_USD=5.0,
@@ -19,7 +19,11 @@ _cfg = types.SimpleNamespace(
     DEBATE_TOP_N=5,
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    trading_enabled=lambda: _cfg.TRADING_MODE in ("paper", "live"),
+    live_trading=lambda: _cfg.TRADING_MODE == "live",
+)
 
 from agents.contracts import (  # noqa: E402
     EnrichedStock,
