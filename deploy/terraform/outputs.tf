@@ -22,8 +22,13 @@ output "view_logs" {
 }
 
 output "chat_webhook_url" {
-  value       = var.enable_chat_agent ? "${google_cloud_run_v2_service.chat[0].uri}/telegram/webhook" : "enable_chat_agent=false — not provisioned"
+  value       = "${google_cloud_run_v2_service.chat.uri}/telegram/webhook"
   description = "Register this URL with Telegram: python scripts/set_webhook.py"
+}
+
+output "vm_ip" {
+  description = "Static IP of the Compute Engine VM (null if enable_vm=false)."
+  value       = var.enable_vm ? google_compute_address.vm_ip[0].address : null
 }
 
 output "durable_state" {
