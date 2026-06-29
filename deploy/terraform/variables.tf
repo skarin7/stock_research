@@ -81,12 +81,6 @@ variable "trading_mode" {
 }
 
 # ── Compute Engine VM (replaces Cloud Run Jobs for scheduled cron) ─────────────
-variable "enable_vm" {
-  type        = bool
-  description = "Provision a GCP Compute Engine VM (replaces Cloud Run Jobs for cron)."
-  default     = false
-}
-
 variable "vm_zone" {
   type    = string
   default = "asia-south1-a"

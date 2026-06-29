@@ -206,13 +206,11 @@ resource "google_cloud_run_v2_service_iam_member" "chat_public" {
 
 # ── Compute Engine VM (replaces Cloud Run Jobs for scheduled cron) ────────────
 resource "google_compute_address" "vm_ip" {
-  count  = var.enable_vm ? 1 : 0
   name   = "${var.job_name}-vm-ip"
   region = var.region
 }
 
 resource "google_compute_firewall" "vm_http" {
-  count   = var.enable_vm ? 1 : 0
   name    = "${var.job_name}-vm-http"
   network = "default"
 
@@ -226,7 +224,6 @@ resource "google_compute_firewall" "vm_http" {
 }
 
 resource "google_compute_instance" "vm" {
-  count        = var.enable_vm ? 1 : 0
   name         = "${var.job_name}-vm"
   machine_type = var.vm_machine_type
   zone         = var.vm_zone
@@ -242,7 +239,7 @@ resource "google_compute_instance" "vm" {
   network_interface {
     network = "default"
     access_config {
-      nat_ip = google_compute_address.vm_ip[0].address
+      nat_ip = google_compute_address.vm_ip.address
     }
   }
 

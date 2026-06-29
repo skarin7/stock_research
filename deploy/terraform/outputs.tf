@@ -27,8 +27,8 @@ output "chat_webhook_url" {
 }
 
 output "vm_ip" {
-  description = "Static IP of the Compute Engine VM (null if enable_vm=false)."
-  value       = var.enable_vm ? google_compute_address.vm_ip[0].address : null
+  description = "Static IP of the Compute Engine VM."
+  value       = google_compute_address.vm_ip.address
 }
 
 output "durable_state" {
