@@ -16,6 +16,16 @@ apt-get install -y -q python3.12 python3.12-venv git nginx certbot python3-certb
 # App user
 useradd -r -m -s /bin/bash "$APP_USER" 2>/dev/null || true
 
+# Allow stock to restart services without password (required by deploy.sh)
+cat > /etc/sudoers.d/stock-deploy <<'SUDOERS'
+stock ALL=(ALL) NOPASSWD: \
+  /bin/systemctl restart stock-chat, \
+  /bin/systemctl restart stock-scheduler, \
+  /bin/systemctl is-active stock-chat stock-scheduler, \
+  /usr/bin/chown -R stock\:stock /opt/stock-research
+SUDOERS
+chmod 440 /etc/sudoers.d/stock-deploy
+
 # Clone / update repo
 if [ -d "$APP_DIR/.git" ]; then
     sudo -u "$APP_USER" git -C "$APP_DIR" pull
