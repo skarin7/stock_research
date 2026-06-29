@@ -1,0 +1,20 @@
+[Unit]
+Description=Stock Research Chat Agent (Telegram webhook)
+After=network.target
+
+[Service]
+Type=simple
+User=stock
+WorkingDirectory=/opt/stock-research
+EnvironmentFile=/opt/stock-research/.env
+ExecStart=/opt/stock-research/venv/bin/uvicorn server.app:app \
+    --host 127.0.0.1 \
+    --port 8080 \
+    --workers 1
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

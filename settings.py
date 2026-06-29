@@ -20,68 +20,6 @@ def _csv_set(name: str, default: str = "") -> frozenset:
     return frozenset(s.strip().upper() for s in raw.split(",") if s.strip())
 
 
-_PROFILE_FLAGS: dict[str, dict] = {
-    "research": {
-        "AGENT_MODE": "research",
-        "ENABLE_RESEARCH_AGENT": True,
-        "ENABLE_ANALYST_AGENT": True,
-        "ENABLE_DEBATE_AGENT": False,
-        "ENABLE_RISK_AGENT": False,
-        "ENABLE_PORTFOLIO_AGENT": False,
-        "ENABLE_TRADING_AGENT": False,
-        "ENABLE_MONITORING_AGENT": False,
-        "ENABLE_MEMORY_AGENT": True,
-        "ENABLE_LIVE_TRADING": False,
-        "GROWW_TRADING_ENABLED": False,
-        "ENABLE_AUTO_EXIT": False,
-    },
-    "paper": {
-        "AGENT_MODE": "paper",
-        "ENABLE_RESEARCH_AGENT": True,
-        "ENABLE_ANALYST_AGENT": True,
-        "ENABLE_DEBATE_AGENT": True,
-        "ENABLE_RISK_AGENT": True,
-        "ENABLE_PORTFOLIO_AGENT": True,
-        "ENABLE_TRADING_AGENT": True,
-        "ENABLE_MONITORING_AGENT": True,
-        "ENABLE_MEMORY_AGENT": True,
-        "ENABLE_LIVE_TRADING": False,
-        "GROWW_TRADING_ENABLED": False,
-        "ENABLE_AUTO_EXIT": False,
-    },
-    "live": {
-        "AGENT_MODE": "live",
-        "ENABLE_RESEARCH_AGENT": True,
-        "ENABLE_ANALYST_AGENT": True,
-        "ENABLE_DEBATE_AGENT": True,
-        "ENABLE_RISK_AGENT": True,
-        "ENABLE_PORTFOLIO_AGENT": True,
-        "ENABLE_TRADING_AGENT": True,
-        "ENABLE_MONITORING_AGENT": True,
-        "ENABLE_MEMORY_AGENT": True,
-        "ENABLE_LIVE_TRADING": True,
-        "GROWW_TRADING_ENABLED": True,
-        "ENABLE_AUTO_EXIT": True,
-    },
-}
-
-
-def _apply_profile(settings: "Settings") -> "Settings":
-    """Expand AGENT_PROFILE into individual flags. Raises ValueError for unknown profiles."""
-    import logging
-    profile = settings.AGENT_PROFILE.strip().lower()
-    if profile not in _PROFILE_FLAGS:
-        raise ValueError(
-            f"Unknown AGENT_PROFILE={profile!r}. Valid values: {', '.join(_PROFILE_FLAGS)}"
-        )
-    flags = _PROFILE_FLAGS[profile]
-    result = replace(settings, **flags)
-    agents_on = [k.removeprefix("ENABLE_").lower() for k, v in flags.items() if k.startswith("ENABLE_") and v]
-    logging.getLogger("agents.settings").info(
-        "profile=%s → %s agents ON", profile, "+".join(agents_on) if agents_on else "none"
-    )
-    return result
-
 
 def _default_signal_weights() -> dict:
     return {
@@ -194,29 +132,14 @@ class Settings:
     # --- Output directory ---
     OUTPUT_DIR: str = "output"
 
-    # --- Multi-agent system ---
-    AGENT_PROFILE: str = "research"      # research | paper | live
-    AGENT_MODE: str = "research"         # set by profile — do not set directly
-    ENABLE_RESEARCH_AGENT: bool = True
-    ENABLE_ANALYST_AGENT: bool = True
-    ENABLE_DEBATE_AGENT: bool = False
-    ENABLE_RISK_AGENT: bool = False
-    ENABLE_PORTFOLIO_AGENT: bool = False
-    ENABLE_TRADING_AGENT: bool = False
-    ENABLE_MONITORING_AGENT: bool = False
-    ENABLE_MEMORY_AGENT: bool = False
-    # Market-pulse shock watcher is a standalone scheduled job; enabled by env
-    # (not the AGENT_PROFILE flags, which a profile replace() would override).
-    ENABLE_PULSE_AGENT: bool = False
+    # --- Trading mode (replaces all ENABLE_* flags) ---
+    TRADING_MODE: str = "off"       # off | paper | live
 
     # --- Live-trading hard gate ---
-    ENABLE_LIVE_TRADING: bool = False
-    GROWW_TRADING_ENABLED: bool = False
     KILL_SWITCH: bool = False
     KILL_SWITCH_FILE: str = os.path.join("output", "kill_switch.flag")
 
     # --- Auto-execution guardrails (protective exits only; never opens risk) ---
-    ENABLE_AUTO_EXIT: bool = False               # auto stop/target SELL-to-close
     AUTO_TRADE_ALLOWLIST: frozenset = field(default_factory=frozenset)  # eligible symbols; empty = none
     MAX_DAILY_NOTIONAL: float = 50000.0          # ₹ ceiling across all auto orders/day
     MAX_ORDERS_PER_DAY: int = 10
@@ -228,7 +151,6 @@ class Settings:
     APPROVAL_CHANNEL: str = "telegram"
 
     # --- Conversational chat agent (Telegram webhook) ---
-    ENABLE_CHAT_AGENT: bool = False
     CHAT_MODEL: str = ""                 # empty → falls back to REPORT_MODEL
     TELEGRAM_WEBHOOK_SECRET: str = ""
     MAX_CHAT_TOOL_CALLS: int = 8
@@ -324,10 +246,9 @@ class Settings:
             INTRADAY_TOP_N=int(os.environ.get("INTRADAY_TOP_N", "10")),
             INTRADAY_HISTORY_DAYS=int(os.environ.get("INTRADAY_HISTORY_DAYS", "400")),
             OUTPUT_DIR=output_dir,
-            AGENT_PROFILE=os.environ.get("AGENT_PROFILE", "research").strip().lower(),
+            TRADING_MODE=os.environ.get("TRADING_MODE", "off").strip().lower(),
             KILL_SWITCH=_flag("KILL_SWITCH", "false"),
             KILL_SWITCH_FILE=os.path.join(output_dir, "kill_switch.flag"),
-            ENABLE_AUTO_EXIT=_flag("ENABLE_AUTO_EXIT", "false"),
             AUTO_TRADE_ALLOWLIST=_csv_set("AUTO_TRADE_ALLOWLIST", ""),
             MAX_DAILY_NOTIONAL=float(os.environ.get("MAX_DAILY_NOTIONAL", "50000")),
             MAX_ORDERS_PER_DAY=int(os.environ.get("MAX_ORDERS_PER_DAY", "10")),
@@ -335,7 +256,6 @@ class Settings:
             AUTO_TRADE_LEDGER=os.path.join(output_dir, "auto_trade_ledger.json"),
             APPROVAL_TIMEOUT_SEC=int(os.environ.get("APPROVAL_TIMEOUT_SEC", "900")),
             APPROVAL_CHANNEL=os.environ.get("APPROVAL_CHANNEL", "telegram"),
-            ENABLE_CHAT_AGENT=_flag("ENABLE_CHAT_AGENT", "false"),
             CHAT_MODEL=os.environ.get("CHAT_MODEL", ""),
             TELEGRAM_WEBHOOK_SECRET=os.environ.get("TELEGRAM_WEBHOOK_SECRET", ""),
             MAX_CHAT_TOOL_CALLS=int(os.environ.get("MAX_CHAT_TOOL_CALLS", "8")),
@@ -351,7 +271,6 @@ class Settings:
             CHAT_CACHE_TTL_SECONDS=int(os.environ.get("CHAT_CACHE_TTL_SECONDS", "1800")),
             CHAT_CACHE_STABLE_TTL_SECONDS=int(os.environ.get("CHAT_CACHE_STABLE_TTL_SECONDS", "86400")),
             CHAT_CACHE_SEMANTIC_THRESHOLD=float(os.environ.get("CHAT_CACHE_SEMANTIC_THRESHOLD", "0.95")),
-            ENABLE_PULSE_AGENT=_flag("ENABLE_PULSE_AGENT", "false"),
             PULSE_INDEX_DROP_PCT=float(os.environ.get("PULSE_INDEX_DROP_PCT", "1.5")),
             PULSE_VIX_SPIKE_PCT=float(os.environ.get("PULSE_VIX_SPIKE_PCT", "15.0")),
             PULSE_HOLDING_DROP_PCT=float(os.environ.get("PULSE_HOLDING_DROP_PCT", "4.0")),
@@ -383,7 +302,12 @@ class Settings:
             METRICS_PORT=int(os.environ.get("METRICS_PORT", "9100")),
             PROMETHEUS_PUSHGATEWAY_URL=os.environ.get("PROMETHEUS_PUSHGATEWAY_URL", ""),
         )
-        return _apply_profile(base)
+        valid_modes = ("off", "paper", "live")
+        if base.TRADING_MODE not in valid_modes:
+            raise ValueError(
+                f"TRADING_MODE={base.TRADING_MODE!r} invalid. Valid values: {', '.join(valid_modes)}"
+            )
+        return base
 
 
-__all__ = ["Settings", "replace", "_PROFILE_FLAGS", "_apply_profile"]
+__all__ = ["Settings", "replace"]

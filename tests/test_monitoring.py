@@ -10,8 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 _cfg = types.SimpleNamespace(
     ANTHROPIC_API_KEY="test",
-    ENABLE_MONITORING_AGENT=True,
-    ENABLE_LIVE_TRADING=False,
+    TRADING_MODE="off",
     KILL_SWITCH=False,
     KILL_SWITCH_FILE="/tmp/__no_such_killswitch__.flag",
     MAX_RUN_COST_USD=5.0,
@@ -22,7 +21,21 @@ _cfg = types.SimpleNamespace(
     TELEGRAM_CHAT_ID="",
     OUTPUT_DIR="output",
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+
+
+def _live_trading():
+    return getattr(_cfg, "TRADING_MODE", "off") == "live"
+
+
+def _trading_enabled():
+    return getattr(_cfg, "TRADING_MODE", "off") != "off"
+
+
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    live_trading=_live_trading,
+    trading_enabled=_trading_enabled,
+)
 
 from agents.contracts import PortfolioState, Position  # noqa: E402
 from agents.nodes import base as _base  # noqa: E402
@@ -35,9 +48,11 @@ from persistence import store as store_mod  # noqa: E402
 @pytest.fixture(autouse=True)
 def _bind(tmp_path, monkeypatch):
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
-    _cfg.ENABLE_LIVE_TRADING = False
+    _cfg.TRADING_MODE = "off"   # paper/off → auto-exit on stop; default for most tests
     for m in (_sup, _base, mon, store_mod):
         m.SETTINGS = _cfg
+    # Patch live_trading directly on mon so it reads THIS file's _cfg, not another stub.
+    monkeypatch.setattr(mon, "live_trading", _live_trading)
     monkeypatch.setattr(mon, "_notify", lambda alerts: None)   # never hit Telegram
     yield
 
@@ -71,7 +86,7 @@ def test_missing_price_warns_and_holds(monkeypatch):
 
 
 def test_live_mode_alerts_only_no_exit(monkeypatch):
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     monkeypatch.setattr(mon, "_current_price", lambda t: 90.0)
     out = mon.monitoring_node({"book": _book(), "mode": "monitor"})
     assert [p.ticker for p in out["book"].positions] == ["AAA"]   # NOT auto-sold

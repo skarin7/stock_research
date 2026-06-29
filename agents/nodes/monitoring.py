@@ -8,7 +8,7 @@ emit Alerts, and notify on critical ones.
 Stop action:
   paper book (default): auto-exit the stopped position (credit cash, drop it,
     persist) — that's the point of a stop.
-  live (ENABLE_LIVE_TRADING): attempt a GUARDED protective exit via
+  live (TRADING_MODE=live): attempt a GUARDED protective exit via
     agents.broker.auto_exit (allowlist + caps + window + broker reconcile). If
     any guard refuses, we keep the position and alert a human (HITL fallback) —
     we never sell a real position outside those guards.
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 
-from config import SETTINGS
+from config import SETTINGS, live_trading
 
 from agents.contracts import Alert
 from agents.nodes.base import agent_node
@@ -56,14 +56,14 @@ def _notify(alerts: list[Alert]) -> None:
     _send_text(SETTINGS.TELEGRAM_CHAT_ID, f"<b>⚠️ Position alerts</b>\n{body}")
 
 
-@agent_node("monitor", enabled_flag="ENABLE_MONITORING_AGENT")
+@agent_node("monitor")
 def monitoring_node(state: AgentState) -> dict:
     book = state.get("book") or load_portfolio()
     if not book.positions:
         logger.info("monitor: no open positions")
         return {"status": RunStatus.COMPLETED}
 
-    live = bool(getattr(SETTINGS, "ENABLE_LIVE_TRADING", False))
+    live = live_trading()
     alerts: list[Alert] = []
     remaining = []
     exited = 0

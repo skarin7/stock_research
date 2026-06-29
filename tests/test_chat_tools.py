@@ -23,7 +23,11 @@ _cfg = types.SimpleNamespace(
     TAVILY_API_KEY="",
     MACRO_SEARCH_MAX_RESULTS=5,
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    trading_enabled=lambda: False,
+    live_trading=lambda: False,
+)
 
 from agents.chat import tools as tools_mod  # noqa: E402
 from persistence import store as store_mod  # noqa: E402

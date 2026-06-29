@@ -27,8 +27,13 @@ _cfg = types.SimpleNamespace(
     STOP_LOSS_PCT=0.05,
     POSITIONS_FILE="/tmp/__positions_test__.json",
     OUTPUT_DIR="output",
+    TRADING_MODE="paper",
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    trading_enabled=lambda: True,
+    live_trading=lambda: False,
+)
 
 from agents.contracts import (  # noqa: E402
     ConvictionView,
@@ -52,6 +57,9 @@ def _bind_config(tmp_path):
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
     for mod in (_sup, _base, risk_mod, port_mod, trade_mod, store_mod):
         mod.SETTINGS = _cfg
+    # base.py imports trading_enabled at module level — rebind it so the
+    # requires_trading guard passes regardless of test execution order.
+    _base.trading_enabled = lambda: True
     yield
 
 

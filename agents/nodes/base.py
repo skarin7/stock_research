@@ -2,7 +2,7 @@
 
 Responsibilities (the "supervisor contract"):
   * honour the kill-switch (→ HALTED) and per-run budget (→ BUDGET_EXCEEDED)
-  * skip cleanly when the node's feature flag is off (pass-through)
+  * skip cleanly when requires_trading=True but TRADING_MODE=off
   * time the node and record an audit trail + Prometheus latency
   * turn unexpected exceptions into a terminal FAILED status (never crash the run)
 
@@ -14,9 +14,9 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from typing import Callable, Optional
+from typing import Callable
 
-from config import SETTINGS
+from config import trading_enabled
 
 from agents.state import AgentState, RunStatus
 from agents.supervisor import audit_entry, budget_exceeded, kill_switch_active
@@ -26,8 +26,8 @@ from observability.chat_tracing import trace_node
 logger = logging.getLogger("agents")
 
 
-def agent_node(name: str, enabled_flag: Optional[str] = None) -> Callable:
-    """Wrap a node fn with kill-switch / budget / flag / error guards."""
+def agent_node(name: str, requires_trading: bool = False) -> Callable:
+    """Wrap a node fn with kill-switch / budget / trading-gate / error guards."""
 
     def decorator(fn: Callable[[AgentState], dict]) -> Callable[[AgentState], dict]:
         @functools.wraps(fn)
@@ -44,9 +44,9 @@ def agent_node(name: str, enabled_flag: Optional[str] = None) -> Callable:
                 return {"status": RunStatus.BUDGET_EXCEEDED,
                         "audit": [audit_entry(name, state.get("status"), RunStatus.BUDGET_EXCEEDED, "budget")]}
 
-            if enabled_flag is not None and not getattr(SETTINGS, enabled_flag, False):
-                logger.info("[%s] disabled (%s=False) — skipping", name, enabled_flag)
-                return {"audit": [audit_entry(name, state.get("status"), state.get("status"), "skipped (disabled)")]}
+            if requires_trading and not trading_enabled():
+                logger.info("[%s] requires TRADING_MODE=paper|live — skipping", name)
+                return {"audit": [audit_entry(name, state.get("status"), state.get("status"), "skipped (trading off)")]}
 
             run_id = state.get("run_id", "unknown")
             input_summary = {

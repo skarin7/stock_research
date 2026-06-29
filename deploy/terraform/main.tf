@@ -7,20 +7,10 @@ locals {
   # Cloud Run Admin v1 endpoint to trigger a job execution (matches deploy/setup_gcp.sh).
   job_run_uri = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${var.job_name}:run"
 
-  monitor_job_name = "${var.job_name}-monitor"
-  monitor_run_uri  = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${local.monitor_job_name}:run"
-  monitor_env      = merge(local.env_vars, { AGENT_PROFILE = "paper" })
-
-  pulse_job_name = "${var.job_name}-pulse"
-  pulse_run_uri  = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${local.pulse_job_name}:run"
-  # Pulse node is gated by ENABLE_PULSE_AGENT (env flag, not the AGENT_PROFILE set).
-  pulse_env = merge(local.env_vars, { ENABLE_PULSE_AGENT = "true" })
-
   # All env vars on the job. Empties are filtered out so optional creds don't
   # create blank env entries. The app reads these via config.py.
   chat_service_name = var.chat_service_name
   chat_env = merge(local.env_vars, {
-    ENABLE_CHAT_AGENT       = "true"
     TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret
   })
 
@@ -44,7 +34,7 @@ locals {
       SCREENER_SCREEN_ID         = var.screener_screen_id
       SCREENER_SCREEN_SLUG       = var.screener_screen_slug
       STOCK_UNIVERSE             = var.stock_universe
-      AGENT_PROFILE              = var.agent_profile
+      TRADING_MODE               = var.trading_mode
       LLM_PROVIDER               = var.llm_provider
       OPENROUTER_API_KEY         = var.openrouter_api_key
       OPENROUTER_SCORING_MODEL   = var.openrouter_scoring_model
@@ -63,6 +53,7 @@ resource "google_project_service" "apis" {
     "cloudscheduler.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
+    "compute.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
@@ -164,54 +155,8 @@ resource "google_cloud_scheduler_job" "daily" {
   ]
 }
 
-# ── Monitoring job + market-hours scheduler (opt-in) ──────────────────────────
-resource "google_cloud_run_v2_job" "monitor" {
-  count               = var.enable_monitoring ? 1 : 0
-  name                = local.monitor_job_name
-  location            = var.region
-  deletion_protection = false
-
-  template {
-    template {
-      service_account = google_service_account.job.email
-      timeout         = "600s"
-      max_retries     = 0
-
-      containers {
-        image   = local.image
-        command = var.job_command
-        args    = ["run_agents.py", "--mode", "monitor"]
-
-        resources {
-          limits = { cpu = "1", memory = var.memory }
-        }
-
-        dynamic "env" {
-          for_each = local.monitor_env
-          content {
-            name  = env.key
-            value = env.value
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_cloud_run_v2_job_iam_member" "monitor_invoker" {
-  count    = var.enable_monitoring ? 1 : 0
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.monitor[0].name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler.email}"
-}
-
 # ── Chat agent Cloud Run Service (Telegram webhook) ───────────────────────────
 resource "google_cloud_run_v2_service" "chat" {
-  count    = var.enable_chat_agent ? 1 : 0
   name     = local.chat_service_name
   location = var.region
 
@@ -252,103 +197,66 @@ resource "google_cloud_run_v2_service" "chat" {
 
 # Allow unauthenticated invocations (Telegram sends plain HTTPS).
 resource "google_cloud_run_v2_service_iam_member" "chat_public" {
-  count    = var.enable_chat_agent ? 1 : 0
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.chat[0].name
+  name     = google_cloud_run_v2_service.chat.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
 
-resource "google_cloud_scheduler_job" "monitor" {
-  count     = var.enable_monitoring ? 1 : 0
-  name      = "${local.monitor_job_name}-cron"
-  region    = var.region
-  schedule  = var.monitor_schedule
-  time_zone = var.time_zone
+# ── Compute Engine VM (replaces Cloud Run Jobs for scheduled cron) ────────────
+resource "google_compute_address" "vm_ip" {
+  name   = "${var.job_name}-vm-ip"
+  region = var.region
+}
 
-  http_target {
-    http_method = "POST"
-    uri         = local.monitor_run_uri
-    body        = base64encode("{}")
-    headers     = { "Content-Type" = "application/json" }
+resource "google_compute_firewall" "vm_http" {
+  name    = "${var.job_name}-vm-http"
+  network = "default"
 
-    oauth_token {
-      service_account_email = google_service_account.scheduler.email
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "443", "22"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["stock-research-vm"]
+}
+
+resource "google_compute_instance" "vm" {
+  name         = "${var.job_name}-vm"
+  machine_type = var.vm_machine_type
+  zone         = var.vm_zone
+  tags         = ["stock-research-vm"]
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 20
     }
   }
 
-  depends_on = [
-    google_project_service.apis,
-    google_cloud_run_v2_job_iam_member.monitor_invoker,
-  ]
-}
-
-# ── Market-pulse shock watcher (tight cadence, incl. pre-open) ────────────────
-resource "google_cloud_run_v2_job" "pulse" {
-  count               = var.enable_pulse ? 1 : 0
-  name                = local.pulse_job_name
-  location            = var.region
-  deletion_protection = false
-
-  template {
-    template {
-      service_account = google_service_account.job.email
-      timeout         = "120s"
-      max_retries     = 0
-
-      containers {
-        image   = local.image
-        command = var.job_command
-        args    = ["run_agents.py", "--mode", "pulse"]
-
-        resources {
-          limits = { cpu = "1", memory = var.memory }
-        }
-
-        dynamic "env" {
-          for_each = local.pulse_env
-          content {
-            name  = env.key
-            value = env.value
-          }
-        }
-      }
+  network_interface {
+    network = "default"
+    access_config {
+      nat_ip = google_compute_address.vm_ip.address
     }
+  }
+
+  metadata = {
+    ssh-keys = "stock:${var.vm_ssh_pub_key}"
+    "startup-script" = <<-STARTUP
+      #!/usr/bin/env bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -q
+      apt-get install -y -q git
+      if [ ! -d /opt/stock-research/.git ]; then
+        git clone https://github.com/skarin7/stock_research /opt/stock-research
+      fi
+      bash /opt/stock-research/deploy/vm/setup.sh
+    STARTUP
   }
 
   depends_on = [google_project_service.apis]
-}
-
-resource "google_cloud_run_v2_job_iam_member" "pulse_invoker" {
-  count    = var.enable_pulse ? 1 : 0
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.pulse[0].name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler.email}"
-}
-
-resource "google_cloud_scheduler_job" "pulse" {
-  count     = var.enable_pulse ? 1 : 0
-  name      = "${local.pulse_job_name}-cron"
-  region    = var.region
-  schedule  = var.pulse_schedule
-  time_zone = var.time_zone
-
-  http_target {
-    http_method = "POST"
-    uri         = local.pulse_run_uri
-    body        = base64encode("{}")
-    headers     = { "Content-Type" = "application/json" }
-
-    oauth_token {
-      service_account_email = google_service_account.scheduler.email
-    }
-  }
-
-  depends_on = [
-    google_project_service.apis,
-    google_cloud_run_v2_job_iam_member.pulse_invoker,
-  ]
 }

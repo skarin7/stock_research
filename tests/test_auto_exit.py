@@ -13,10 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 _cfg = types.SimpleNamespace(
     ANTHROPIC_API_KEY="test",
-    ENABLE_MONITORING_AGENT=True,
-    ENABLE_LIVE_TRADING=True,
-    GROWW_TRADING_ENABLED=True,
-    AGENT_MODE="live",
+    TRADING_MODE="live",
     KILL_SWITCH=False,
     KILL_SWITCH_FILE="/tmp/__no_such_killswitch__.flag",
     MAX_RUN_COST_USD=5.0,
@@ -27,14 +24,24 @@ _cfg = types.SimpleNamespace(
     TELEGRAM_CHAT_ID="",
     OUTPUT_DIR="output",
     # auto-exit guardrails
-    ENABLE_AUTO_EXIT=True,
     AUTO_TRADE_ALLOWLIST=frozenset({"AAA"}),
     MAX_DAILY_NOTIONAL=50_000.0,
     MAX_ORDERS_PER_DAY=10,
     AUTO_TRADE_WINDOW="00:00-23:59",            # wide open so tests aren't clock-dependent
     AUTO_TRADE_LEDGER="/tmp/__ae_ledger__.json",
 )
-sys.modules["config"] = types.SimpleNamespace(SETTINGS=_cfg)
+
+def _live_trading():
+    return getattr(_cfg, "TRADING_MODE", "") == "live"
+
+def _trading_enabled():
+    return getattr(_cfg, "TRADING_MODE", "off") != "off"
+
+sys.modules["config"] = types.SimpleNamespace(
+    SETTINGS=_cfg,
+    live_trading=_live_trading,
+    trading_enabled=_trading_enabled,
+)
 
 from agents.contracts import Position, PortfolioState  # noqa: E402
 from agents.broker import auto_exit as ae  # noqa: E402
@@ -50,8 +57,7 @@ from agents.state import RunStatus  # noqa: E402
 def _bind(tmp_path, monkeypatch):
     _cfg.AUTO_TRADE_LEDGER = str(tmp_path / "ledger.json")
     _cfg.POSITIONS_FILE = str(tmp_path / "positions.json")
-    _cfg.ENABLE_AUTO_EXIT = True
-    _cfg.ENABLE_LIVE_TRADING = True
+    _cfg.TRADING_MODE = "live"
     _cfg.AUTO_TRADE_ALLOWLIST = frozenset({"AAA"})
     _cfg.AUTO_TRADE_WINDOW = "00:00-23:59"
     _cfg.MAX_DAILY_NOTIONAL = 50_000.0
@@ -79,11 +85,11 @@ def test_auto_exit_places_sell_and_records_ledger():
     assert led["notional"] == pytest.approx(900.0)   # 10 * 90
 
 
-# ── guard: feature flag ─────────────────────────────────────────────────────────
+# ── guard: feature flag (allowlist empty = disabled) ────────────────────────────
 
 def test_disabled_flag_refuses():
-    _cfg.ENABLE_AUTO_EXIT = False
-    with pytest.raises(ae.ExitRefused, match="ENABLE_AUTO_EXIT off"):
+    _cfg.AUTO_TRADE_ALLOWLIST = frozenset()
+    with pytest.raises(ae.ExitRefused, match="AUTO_TRADE_ALLOWLIST empty"):
         ae.auto_exit(_pos(), price=90.0, reason="stop")
 
 

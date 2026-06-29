@@ -96,7 +96,7 @@ def _global_event_keys(breaches: dict) -> set[str]:
     return keys
 
 
-@agent_node("pulse", enabled_flag="ENABLE_PULSE_AGENT")
+@agent_node("pulse")
 def pulse_node(state: AgentState) -> dict:
     now = _now_ist()
     open_now = _market_open(now)

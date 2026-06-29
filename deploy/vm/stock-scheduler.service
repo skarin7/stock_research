@@ -1,0 +1,17 @@
+[Unit]
+Description=Stock Research DB-Driven Scheduler
+After=network.target stock-chat.service
+
+[Service]
+Type=simple
+User=stock
+WorkingDirectory=/opt/stock-research
+EnvironmentFile=/opt/stock-research/.env
+ExecStart=/opt/stock-research/venv/bin/python scheduler/runner.py
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

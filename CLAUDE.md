@@ -147,24 +147,24 @@ python run_agents.py --unkill      # clear it
 
 **Cost/iteration guardrails** live in `config.py`: `MAX_GRAPH_STEPS`, `MAX_DEBATE_ROUNDS`, `MAX_NODE_RETRIES`, `MAX_RUN_COST_USD`, `MAX_RUN_TOKENS`. Token-efficiency levers: prompt caching on the static scoring prefix, the Batch API for ≥20 stocks, model tiering (Haiku scoring / Sonnet debate), and pre-filtering before the LLM.
 
-## Deployment (GCP Cloud Run)
+## Deployment (VM)
+
+Single VM (GCP e2-small or Hetzner CAX11). Full guide: `docs/deployment.md`.
 
 ```bash
-# Build image (Cloud Build / Kaniko)
-gcloud builds submit --config cloudbuild.yaml
-
-# Run job (secrets injected as env vars — no .env in container)
+cd deploy/terraform
+cp terraform.tfvars.example terraform.tfvars  # fill in keys + enable_vm=true
+terraform apply
+# then: python scripts/set_webhook.py https://<vm-ip>/telegram/webhook
 ```
 
-The Dockerfile uses `python:3.12-slim` and needs `gcc`, `libxml2-dev`, `libxslt-dev` for lxml.
+Schedules (research/intraday/watch) are stored in the `schedules` DB table — update rows to change timing, no SSH needed.
 
-**Terraform deploy (`deploy/terraform/` + `deploy/deploy.sh`)**: single-entrypoint provisioning of the serverless stack — Artifact Registry, a Cloud Run **Job** (runs `run_agents.py --mode research`), a daily Cloud Scheduler trigger, and service accounts. Secrets/creds (Anthropic/OpenRouter keys, Neon `DATABASE_URL`, Langfuse Cloud keys) are injected as plain env vars (no Secret Manager — keeps cost near zero). `bash deploy/deploy.sh` builds the image then `terraform apply`s; `--plan` previews, `--run` triggers a run after. State holds secrets, so it is gitignored.
+**Terraform** (`deploy/terraform/`): provisions Artifact Registry, Cloud Run service (chat webhook option), and optionally a GCP Compute Engine VM (`enable_vm=true`). `bash deploy/deploy.sh` builds the Docker image. Secrets injected as plain env vars (no Secret Manager).
 
-- **Managed observability**: prod uses **Langfuse Cloud** (free tier) for per-run LLM cost/trace history, viewable anytime without a 24/7 node; `deploy/docker-compose.obs.yml` is local-dev only. Since a batch job scales to zero (nothing scrapes the pull `/metrics`), custom metrics can be **pushed** at end of run via `PROMETHEUS_PUSHGATEWAY_URL` (`metrics.push_metrics`, no-op when unset) — a Prometheus Pushgateway target; Grafana Cloud needs remote_write/OTLP (Grafana Alloy), not a raw gateway.
-- **Adopting `setup_gcp.sh` resources into Terraform**: `deploy/terraform/import.sh` imports the gcloud-created job/repo/SAs/scheduler into state (idempotent, zero cost) so `terraform apply` manages them instead of erroring on "already exists".
 - **Memory agent** (`agents/nodes/memory.py`): runs after `finalize`; records each ranked call (score/conviction/rationale + a coarse regime label) into long-term memory (`persistence/store.py` append-only jsonl) and stores a per-signal accuracy self-evaluation from the backtest log. Agents read it back via `store.recent_calls(ticker)` / `store.latest_signal_perf()` (feeding it into scoring weights is a future tuning step). Gated by `ENABLE_MEMORY_AGENT`.
-- **Monitoring agent** (`agents/nodes/monitoring.py`, `build_monitor_graph`): a standalone `START → monitor → END` graph run via `run_agents.py --mode monitor`. It loads the book, fetches a live price per position (`_current_price`, monkeypatchable), evaluates stop-losses → `Alert`s, and notifies on critical ones. Paper book auto-exits stopped positions; under `ENABLE_LIVE_TRADING` it alerts only (real exits must go through the broker). It runs as a **scheduled job every few minutes during market hours** (Terraform: `enable_monitoring=true` provisions a second Cloud Run Job + Scheduler on `monitor_schedule`), NOT a 24/7 service — an always-on service would break the scale-to-zero cost model.
-- **Market-pulse agent** (`agents/nodes/pulse.py`, `build_pulse_graph`, `run_agents.py --mode pulse`): a proactive intraday **shock watcher** that ALERTS only (no broker action) on four trigger families — (1) NIFTY drop, (2) India VIX spike, (3) news/geopolitical shock (tiered cheap Haiku classifier), (4) **global cross-asset** shock (`PULSE_GLOBAL_TICKERS`: Kospi/Nikkei/Hang Seng/crude/USD-INR/US-futures, via `enrichment/market_pulse.py`). Session-only triggers (1,2 + per-holding drop) are gated by `_market_open()` (09:15–15:30 IST); global + news run pre-open too (the early read on overnight moves). Debounce is **once-per-episode** (fires on threshold cross, re-arms after the metric normalises; `PULSE_ALERT_COOLDOWN_MIN` is a secondary floor) with state in `store.load/save_pulse_state`. Global breaches map to Indian sectors (`PULSE_GLOBAL_SECTOR_MAP`) → names your exposed holdings. Gated by `ENABLE_PULSE_AGENT` (env, not profile). Runs on a **tight 1–2 min schedule incl. pre-open** (Terraform: `enable_pulse=true` + `pulse_schedule`, default `*/2 2-10 UTC`), still scale-to-zero.
+- **Monitoring agent** (`agents/nodes/monitoring.py`, `build_monitor_graph`): a standalone `START → monitor → END` graph run via `run_agents.py --mode monitor`. It loads the book, fetches a live price per position (`_current_price`, monkeypatchable), evaluates stop-losses → `Alert`s, and notifies on critical ones. Paper book auto-exits stopped positions; under `ENABLE_LIVE_TRADING` it alerts only (real exits must go through the broker). Runs as a scheduled job every few minutes during market hours, NOT a 24/7 service.
+- **Market-pulse agent** (`agents/nodes/pulse.py`, `build_pulse_graph`, `run_agents.py --mode pulse`): a proactive intraday **shock watcher** that ALERTS only (no broker action) on four trigger families — (1) NIFTY drop, (2) India VIX spike, (3) news/geopolitical shock (tiered cheap Haiku classifier), (4) **global cross-asset** shock (`PULSE_GLOBAL_TICKERS`: Kospi/Nikkei/Hang Seng/crude/USD-INR/US-futures, via `enrichment/market_pulse.py`). Session-only triggers (1,2 + per-holding drop) are gated by `_market_open()` (09:15–15:30 IST); global + news run pre-open too (the early read on overnight moves). Debounce is **once-per-episode** (fires on threshold cross, re-arms after the metric normalises; `PULSE_ALERT_COOLDOWN_MIN` is a secondary floor) with state in `store.load/save_pulse_state`. Global breaches map to Indian sectors (`PULSE_GLOBAL_SECTOR_MAP`) → names your exposed holdings. Gated by `ENABLE_PULSE_AGENT` (env, not profile). Runs on a **tight 1–2 min schedule incl. pre-open** (default `*/2 2-10 UTC`), still scale-to-zero.
 
 ## Conversational chat agent (Telegram)
 

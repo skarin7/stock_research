@@ -68,41 +68,33 @@ variable "job_args" {
   default = ["run_agents.py", "--mode", "research"]
 }
 
-# ── Monitoring (separate market-hours scheduled job) ───────────────────────────
-variable "enable_monitoring" {
-  type        = bool
-  description = "Provision a second Cloud Run Job + Scheduler that runs run_agents.py --mode monitor on a market-hours cadence."
-  default     = false
-}
-
-variable "monitor_schedule" {
-  type        = string
-  description = "Cron (UTC) for the monitor job. Default ~every 5 min, 08:30–16:25 IST, Mon–Fri."
-  default     = "*/5 3-10 * * 1-5"
-}
-
-# ── Market-pulse shock watcher (tight cadence, incl. pre-open) ──────────────────
-variable "enable_pulse" {
-  type        = bool
-  description = "Provision the market-pulse Cloud Run Job + Scheduler (intraday shock alerts; ENABLE_PULSE_AGENT=true)."
-  default     = false
-}
-
-variable "pulse_schedule" {
-  type        = string
-  description = "Cron (UTC) for the pulse job. Default every 2 min, 02:00–10:59 UTC (~07:30–16:29 IST incl. pre-open), Mon–Fri."
-  default     = "*/2 2-10 * * 1-5"
-}
-
 # ── Non-secret config (plain env on the job) ────────────────────────────────────
 variable "stock_universe" {
   type    = string
   default = "nifty200"
 }
 
-variable "agent_profile" {
+variable "trading_mode" {
+  type        = string
+  description = "Trading mode: off | paper | live."
+  default     = "paper"
+}
+
+# ── Compute Engine VM (replaces Cloud Run Jobs for scheduled cron) ─────────────
+variable "vm_zone" {
   type    = string
-  default = "research" # research | paper | live
+  default = "asia-south1-a"
+}
+
+variable "vm_machine_type" {
+  type    = string
+  default = "e2-small"
+}
+
+variable "vm_ssh_pub_key" {
+  type        = string
+  description = "SSH public key for the 'stock' user on the VM. Paste full key string."
+  default     = ""
 }
 
 # ── LLM provider (anthropic default; openrouter for cheap models) ───────────────
@@ -253,12 +245,6 @@ variable "screener_screen_slug" {
 }
 
 # ── Chat agent (Telegram webhook service) ──────────────────────────────────────
-variable "enable_chat_agent" {
-  type        = bool
-  description = "Provision the Cloud Run service that receives Telegram webhook updates."
-  default     = false
-}
-
 variable "chat_service_name" {
   type    = string
   default = "stock-intelligence-chat"

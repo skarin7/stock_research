@@ -10,6 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     Integer,
@@ -161,6 +162,21 @@ class MemoryRow(Base):
     ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PulseStateRow(Base):
+    """Single-row table for the market-pulse agent's debounce state.
+
+    The pulse agent runs every 1-2 minutes on Cloud Run (scale-to-zero).
+    Without a persistent store the debounce flags reset on every cold start,
+    causing repeated alerts.  One shared row (id=1) survives restarts.
+    """
+
+    __tablename__ = "pulse_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # always 1
+    state_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ChatResponseCache(Base):
     """Cached ReAct agent responses, keyed by query hash.
 
@@ -179,3 +195,23 @@ class ChatResponseCache(Base):
     intent: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class ScheduleRow(Base):
+    """DB-driven cron schedules for the Python scheduler (replaces deploy/vm/crontab).
+
+    One row per named job. The scheduler process polls this table every 30 s,
+    checks ``cron_expr`` via croniter, and spawns ``run_agents.py <mode>`` when due.
+    Update rows (or toggle ``enabled``) to change timing with no SSH needed.
+    """
+
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    mode: Mapped[str] = mapped_column(String, nullable=False)          # research | intraday | watch
+    cron_expr: Mapped[str] = mapped_column(String, nullable=False)     # e.g. "30 6 * * 1-5"
+    timezone: Mapped[str] = mapped_column(String, default="Asia/Kolkata")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

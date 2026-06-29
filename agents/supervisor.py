@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from config import SETTINGS
+from config import SETTINGS, trading_enabled
 
 from agents.state import TERMINAL_STATUSES, AgentState, RunStatus
 
@@ -57,7 +57,7 @@ def route_after_research(state: AgentState) -> str:
 def route_after_analyst(state: AgentState) -> str:
     if is_terminal(state):
         return "finalize"
-    if getattr(SETTINGS, "ENABLE_DEBATE_AGENT", False):
+    if trading_enabled():
         return "debate"
     return "finalize"
 

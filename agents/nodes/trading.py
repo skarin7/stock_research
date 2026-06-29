@@ -5,7 +5,7 @@ paper mode: simulate fills at the approved limit price, append positions to the
 live mode: mark proposals AWAITING_APPROVAL, persist them, and suspend the run
   via LangGraph interrupt() for explicit human approval. On resume, approved
   proposals are placed through the gated broker (default-deny). Live execution
-  additionally requires ENABLE_LIVE_TRADING (else no order is ever placed).
+  additionally requires TRADING_MODE=live (else no order is ever placed).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from config import SETTINGS
+from config import SETTINGS, live_trading
 
 from agents.contracts import Position, ProposalStatus
 from agents.nodes.base import agent_node
@@ -34,7 +34,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@agent_node("trading", enabled_flag="ENABLE_TRADING_AGENT")
+@agent_node("trading", requires_trading=True)
 def trading_node(state: AgentState) -> dict:
     proposals = list(state.get("proposals") or [])
     approved = [p for p in proposals if p.status == ProposalStatus.APPROVED]
@@ -77,15 +77,15 @@ def trading_node(state: AgentState) -> dict:
 def _execute_live(state: AgentState, proposals: list, approved: list) -> dict:
     """Live path: human approval via interrupt(), then place through the gated broker.
 
-    Default-deny: if ENABLE_LIVE_TRADING is off we never suspend or place — the
+    Default-deny: if TRADING_MODE!=live we never suspend or place — the
     proposals are left APPROVED and no order is made.
 
     Idempotency note: everything before _interrupt() re-runs verbatim on resume,
     so it must be side-effect-idempotent (marking AWAITING + persisting an upsert
     both are). Order placement happens only AFTER the human decision returns.
     """
-    if not getattr(SETTINGS, "ENABLE_LIVE_TRADING", False):
-        logger.warning("trading(live): ENABLE_LIVE_TRADING=false — default-deny, %d approved, no orders",
+    if not live_trading():
+        logger.warning("trading(live): TRADING_MODE!=live — default-deny, %d approved, no orders",
                        len(approved))
         return {}
 

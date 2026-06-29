@@ -210,19 +210,69 @@ def _pulse_state_path() -> Path:
     return Path(getattr(SETTINGS, "PULSE_STATE_FILE", "output/pulse_state.json"))
 
 
+def _db_save_pulse_state(state: dict) -> None:
+    """Upsert pulse state into Postgres pulse_state table (single-row pattern, id=1)."""
+    from datetime import datetime
+
+    from persistence.db import session_scope
+    from persistence.models import PulseStateRow
+
+    state_json = json.dumps(state, default=str)
+    with session_scope() as s:
+        row = s.get(PulseStateRow, 1)
+        if row is None:
+            s.add(PulseStateRow(id=1, state_json=state_json, updated_at=datetime.utcnow()))
+        else:
+            row.state_json = state_json
+            row.updated_at = datetime.utcnow()
+
+
+def _db_load_pulse_state() -> dict:
+    """Load pulse state from Postgres pulse_state table."""
+    from persistence.db import session_scope
+    from persistence.models import PulseStateRow
+
+    with session_scope() as s:
+        row = s.get(PulseStateRow, 1)
+        if row is None:
+            return {}
+        return json.loads(row.state_json)
+
+
 def load_pulse_state() -> dict:
     """Per-trigger armed flags + last-alert timestamps + last news-check time.
-    Returns an empty dict on first run / corrupt file."""
-    p = _pulse_state_path()
-    if p.exists():
+
+    DB-backed when DATABASE_URL is set (survives Cloud Run cold starts);
+    falls back to JSON file on DB error or when DATABASE_URL is unset.
+    Returns an empty dict on first run / corrupt file.
+    """
+    if getattr(SETTINGS, "DATABASE_URL", ""):
         try:
-            return json.loads(p.read_text())
+            return _db_load_pulse_state()
         except Exception as e:
-            logger.warning("could not load pulse state (%s) — starting fresh", e)
-    return {}
+            logger.warning("pulse_state DB load failed (%s) — falling back to JSON", e)
+    p = _pulse_state_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except Exception as e:
+        logger.warning("could not load pulse state (%s) — starting fresh", e)
+        return {}
 
 
 def save_pulse_state(state: dict) -> None:
+    """Persist pulse state.
+
+    DB-backed when DATABASE_URL is set; falls back to JSON file on DB error
+    or when DATABASE_URL is unset.
+    """
+    if getattr(SETTINGS, "DATABASE_URL", ""):
+        try:
+            _db_save_pulse_state(state)
+            return
+        except Exception as e:
+            logger.warning("pulse_state DB save failed (%s) — falling back to JSON", e)
     p = _pulse_state_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state, indent=2, default=str))

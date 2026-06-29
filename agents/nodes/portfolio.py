@@ -22,32 +22,24 @@ from persistence.store import load_portfolio
 logger = logging.getLogger("agents.portfolio")
 
 
-@agent_node("portfolio", enabled_flag="ENABLE_PORTFOLIO_AGENT")
-def portfolio_node(state: AgentState) -> dict:
-    proposals = list(state.get("proposals") or [])
-    if not proposals:
-        logger.info("portfolio: no proposals — skipping")
-        return {}
-
-    enriched = state.get("enriched")
-    stock_by = {s.symbol: s for s in (enriched.stocks if enriched else [])}
-    book = state.get("book") or load_portfolio()
-
-    capital = float(getattr(SETTINGS, "TRADING_CAPITAL_INR", 0.0))
-    max_open = int(getattr(SETTINGS, "MAX_OPEN_POSITIONS", 5))
-    max_pos_pct = float(getattr(SETTINGS, "MAX_POSITION_PCT", 0.10))
-    max_sector_pct = float(getattr(SETTINGS, "MAX_SECTOR_PCT", 0.30))
-
+def size_proposals(
+    proposals: list,
+    stock_by: dict,
+    book,
+    capital: float,
+    max_open: int,
+    max_pos_pct: float,
+    max_sector_pct: float,
+) -> list:
+    """Pure portfolio sizer. Mutates proposal status in-place, returns same list."""
     open_count = len(book.positions)
-    sector_value = dict(book.sector_exposure)   # running per-sector value (incl. existing)
+    sector_value = dict(book.sector_exposure)
 
-    # Highest conviction gets first claim on capacity.
     candidates = sorted(
         (p for p in proposals if p.status == ProposalStatus.PROPOSED),
         key=lambda p: p.conviction, reverse=True,
     )
 
-    approved = 0
     for p in candidates:
         if open_count >= max_open:
             _reject(p, "max_open", f"{open_count}/{max_open} positions")
@@ -74,11 +66,35 @@ def portfolio_node(state: AgentState) -> dict:
         p.qty = qty
         p.limit_price = round(price, 2)
         p.status = ProposalStatus.APPROVED
-        p.risk_checks.append(RiskCheck(rule="sized", passed=True, detail=f"{qty} @ {price:.2f}"))
+        p.risk_checks.append(RiskCheck(rule="sized", passed=True,
+                                       detail=f"{qty} @ {price:.2f}"))
         sector_value[sector] = sector_value.get(sector, 0.0) + value
         open_count += 1
-        approved += 1
 
+    return proposals
+
+
+@agent_node("portfolio", requires_trading=True)
+def portfolio_node(state: AgentState) -> dict:
+    proposals = list(state.get("proposals") or [])
+    if not proposals:
+        logger.info("portfolio: no proposals — skipping")
+        return {}
+
+    enriched = state.get("enriched")
+    stock_by = {s.symbol: s for s in (enriched.stocks if enriched else [])}
+    book = state.get("book") or load_portfolio()
+
+    proposals = size_proposals(
+        proposals=proposals,
+        stock_by=stock_by,
+        book=book,
+        capital=float(getattr(SETTINGS, "TRADING_CAPITAL_INR", 0.0)),
+        max_open=int(getattr(SETTINGS, "MAX_OPEN_POSITIONS", 5)),
+        max_pos_pct=float(getattr(SETTINGS, "MAX_POSITION_PCT", 0.10)),
+        max_sector_pct=float(getattr(SETTINGS, "MAX_SECTOR_PCT", 0.30)),
+    )
+    approved = sum(p.status == ProposalStatus.APPROVED for p in proposals)
     logger.info("portfolio: %d approved, %d rejected",
                 approved, sum(p.status == ProposalStatus.REJECTED for p in proposals))
     return {"status": RunStatus.RUNNING, "proposals": proposals, "book": book}

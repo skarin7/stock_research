@@ -15,7 +15,11 @@ from typing import Optional
 
 from langchain_core.tools import tool
 
-from config import SETTINGS
+from config import SETTINGS, trading_enabled, live_trading
+from agents.nodes.risk import run_risk_checks
+from agents.nodes.portfolio import size_proposals
+from persistence.store import load_portfolio, save_portfolio, save_proposals, recompute
+from agents.approval import send_approval_request
 
 logger = logging.getLogger("agents.chat.tools")
 
@@ -506,5 +510,177 @@ def historical_performance(symbols: list[str], from_date: str, to_date: str) -> 
         return {"error": str(e), "_source": "ohlcv_candles"}
 
 
+def _fetch_live_price(ticker: str) -> float | None:
+    """Fetch a single live price via the market-data provider chain."""
+    try:
+        from enrichment.market_data import get_default_provider
+        provider = get_default_provider()
+        result = provider.get_quote(ticker)
+        price = result.get("ltp") or result.get("last_price") or result.get("current_price")
+        return float(price) if price else None
+    except Exception:
+        return None
+
+
+@tool
+def propose_trade(ticker: str, action: str, qty: int, rationale: str) -> dict:
+    """Propose a trade from chat. Paper mode: fills immediately and updates the book.
+    Live mode: awaits HITL Telegram approval before any order is placed.
+
+    action must be BUY. qty must be > 0. rationale is free-text thesis.
+    Returns status=filled (paper) or status=pending_approval (live) on success,
+    or an error dict when trading is disabled or risk/sizing checks fail.
+    """
+    import config as _config  # lazy so tests can patch config.SETTINGS at runtime
+
+    if not trading_enabled():
+        return {"error": "Trading disabled (TRADING_MODE=off). Set TRADING_MODE=paper or live."}
+    if action.upper() != "BUY":
+        return {"error": f"Only BUY supported; got {action!r}"}
+    if qty <= 0:
+        return {"error": f"qty must be > 0; got {qty}"}
+
+    settings = _config.SETTINGS
+    price = _fetch_live_price(ticker.upper())
+    if not price:
+        return {"error": f"Could not fetch live price for {ticker}"}
+
+    from agents.contracts import ConvictionView, EnrichedStock, Position, PortfolioState
+
+    ticker = ticker.upper()
+    stock = EnrichedStock(symbol=ticker, ltp=price, sector=None)
+    stock_by = {ticker: stock}
+    book = load_portfolio()
+    held = {p.ticker for p in book.positions}
+
+    min_conv = float(getattr(settings, "MIN_CONVICTION_TO_TRADE", 0.6))
+    cv = ConvictionView(
+        ticker=ticker,
+        direction="long",
+        conviction=max(min_conv, 0.75),
+        bull_case=rationale,
+        bear_case="",
+    )
+
+    proposals = run_risk_checks(
+        convictions=[cv],
+        stock_by=stock_by,
+        held=held,
+        min_conv=min_conv,
+        block_earnings=bool(getattr(settings, "BLOCK_NEAR_EARNINGS", True)),
+        earnings_days=int(getattr(settings, "EARNINGS_PROXIMITY_DAYS", 5)),
+        run_id="chat",
+    )
+    p = proposals[0]
+    p_status = p.status.value if hasattr(p.status, "value") else str(p.status)
+    if p_status == "blocked":
+        failing = [c.detail for c in p.risk_checks if not c.passed]
+        return {"error": f"Risk check failed: {'; '.join(failing)}"}
+
+    proposals = size_proposals(
+        proposals=proposals,
+        stock_by=stock_by,
+        book=book,
+        capital=float(getattr(settings, "TRADING_CAPITAL_INR", 100000.0)),
+        max_open=int(getattr(settings, "MAX_OPEN_POSITIONS", 5)),
+        max_pos_pct=float(getattr(settings, "MAX_POSITION_PCT", 0.10)),
+        max_sector_pct=float(getattr(settings, "MAX_SECTOR_PCT", 0.30)),
+    )
+    p = proposals[0]
+    p_status = p.status.value if hasattr(p.status, "value") else str(p.status)
+    if p_status != "approved":
+        failing = [c.detail for c in p.risk_checks if not c.passed]
+        return {"error": f"Portfolio sizing rejected: {'; '.join(failing)}"}
+
+    effective_qty = qty if qty > 0 else p.qty
+    stop_loss_pct = float(getattr(settings, "STOP_LOSS_PCT", 0.05))
+
+    if not live_trading():
+        stop = round(p.limit_price * (1 - stop_loss_pct), 2)
+        book.positions.append(Position(
+            ticker=ticker,
+            qty=effective_qty,
+            avg_price=p.limit_price,
+            stop_price=stop,
+            sector=stock.sector,
+        ))
+        book.cash = round(book.cash - effective_qty * p.limit_price, 2)
+        book = recompute(book)
+        save_portfolio(book)
+        return {
+            "status": "filled",
+            "ticker": ticker,
+            "qty": effective_qty,
+            "price": p.limit_price,
+            "stop": stop,
+            "cash_remaining": book.cash,
+            "mode": "paper",
+        }
+    else:
+        from datetime import datetime, timedelta, timezone
+        from agents.contracts import ProposalStatus
+        approval_timeout = int(getattr(settings, "APPROVAL_TIMEOUT_SEC", 900))
+        p.qty = effective_qty
+        p.status = ProposalStatus.AWAITING_APPROVAL
+        p.expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=approval_timeout)
+        ).isoformat()
+        save_proposals([p])
+        send_approval_request({
+            "type": "trade_approval",
+            "run_id": "chat",
+            "proposals": [{
+                "proposal_id": p.proposal_id,
+                "ticker": p.ticker,
+                "side": p.side,
+                "qty": p.qty,
+                "limit_price": p.limit_price,
+                "conviction": p.conviction,
+            }],
+            "instructions": "/approve or /reject",
+        })
+        return {
+            "status": "pending_approval",
+            "ticker": ticker,
+            "qty": effective_qty,
+            "price": p.limit_price,
+            "proposal_id": p.proposal_id,
+            "mode": "live",
+        }
+
+
+@tool
+def intraday_watchlist(as_of_date: Optional[str] = None) -> dict:
+    """Run the intraday signal scorer and return the ranked next-day watchlist.
+
+    as_of_date: ISO date YYYY-MM-DD (omit for today). Scores S1-S10 / N1-N7
+    rules deterministically (no LLM). Returns HIGH / MODERATE conviction bands.
+    Best run after NSE close to generate an evening watchlist.
+    """
+    try:
+        from intraday.pipeline import run_pipeline as run_intraday_pipeline  # lazy to avoid config mock pollution
+        ref = date.fromisoformat(as_of_date) if as_of_date else None
+        items = run_intraday_pipeline(report_date=ref)
+        return {
+            "count": len(items),
+            "date": (ref or date.today()).isoformat(),
+            "items": [
+                {
+                    "symbol": w.get("symbol", ""),
+                    "score": w.get("score", 0),
+                    "conviction": w.get("conviction", ""),
+                    "company": w.get("company", ""),
+                    "sector": w.get("sector", ""),
+                    "close": w.get("close"),
+                }
+                for w in items
+            ],
+        }
+    except Exception as e:
+        logger.exception("intraday_watchlist failed")
+        return {"error": str(e)}
+
+
 CHAT_TOOLS = [screen_snapshot, live_quote, fetch_news, score_subset, deep_dive,
-              get_portfolio, macro_search, timing, recall, historical_performance]
+              get_portfolio, macro_search, timing, recall, historical_performance,
+              propose_trade, intraday_watchlist]

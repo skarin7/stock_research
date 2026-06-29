@@ -4,7 +4,7 @@ By construction this can only SELL-to-close an EXISTING long; it never opens
 risk. It wraps ``broker.place_order`` with a second, stricter layer of
 auto-trade guardrails on top of the broker's own default-deny gate:
 
-    ENABLE_AUTO_EXIT  AND  ticker in AUTO_TRADE_ALLOWLIST  AND  within window
+    ticker in AUTO_TRADE_ALLOWLIST (non-empty)  AND  within window
     AND  broker reconciliation confirms the position  AND  daily order/notional
     caps not exceeded.
 
@@ -98,8 +98,8 @@ def auto_exit(position, price: float, reason: str) -> tuple[str, str]:
     """
     g = SETTINGS
 
-    if not getattr(g, "ENABLE_AUTO_EXIT", False):
-        raise ExitRefused("ENABLE_AUTO_EXIT off")
+    if not getattr(g, "AUTO_TRADE_ALLOWLIST", frozenset()):
+        raise ExitRefused("AUTO_TRADE_ALLOWLIST empty — auto-exit disabled")
     if position.ticker not in getattr(g, "AUTO_TRADE_ALLOWLIST", frozenset()):
         raise ExitRefused(f"{position.ticker} not in AUTO_TRADE_ALLOWLIST → HITL")
     if not _within_window():
