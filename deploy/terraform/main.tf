@@ -55,33 +55,19 @@ resource "google_project_service" "apis" {
 
 # Instance schedule: VM runs during market hours only to save cost.
 # All times UTC (IST = UTC+5:30).
+# GCP allows only ONE resource policy per VM instance.
 #
-#   Monday   : start 23:30 UTC Sun (= 05:00 IST Mon), stop 10:30 UTC Mon (= 16:00 IST)
-#   Tue–Fri  : start 03:00 UTC    (= 08:30 IST),      stop 10:30 UTC     (= 16:00 IST)
-#
-# GCP allows only one vm_start_schedule + vm_stop_schedule per policy,
-# so Monday (early start) gets its own policy.
+#   Start: 00:30 UTC Mon–Fri  (= 06:00 IST)   cron: "30 0 * * 1-5"
+#   Stop : 10:30 UTC Mon–Fri  (= 16:00 IST)   cron: "30 10 * * 1-5"
 
-resource "google_compute_resource_policy" "vm_schedule_mon" {
+resource "google_compute_resource_policy" "vm_schedule" {
   count  = var.enable_schedule ? 1 : 0
-  name   = "${var.job_name}-vm-schedule-mon"
+  name   = "${var.job_name}-vm-schedule"
   region = var.region
 
   instance_schedule_policy {
-    vm_start_schedule { schedule = "30 23 * * 0" } # 23:30 UTC Sun = 05:00 IST Mon
-    vm_stop_schedule  { schedule = "30 10 * * 1" } # 10:30 UTC Mon = 16:00 IST Mon
-    time_zone = "UTC"
-  }
-}
-
-resource "google_compute_resource_policy" "vm_schedule_tue_fri" {
-  count  = var.enable_schedule ? 1 : 0
-  name   = "${var.job_name}-vm-schedule-tue-fri"
-  region = var.region
-
-  instance_schedule_policy {
-    vm_start_schedule { schedule = "0 3 * * 2-5"  } # 03:00 UTC Tue-Fri = 08:30 IST
-    vm_stop_schedule  { schedule = "30 10 * * 2-5" } # 10:30 UTC Tue-Fri = 16:00 IST
+    vm_start_schedule { schedule = "30 0 * * 1-5"  } # 00:30 UTC Mon-Fri = 06:00 IST
+    vm_stop_schedule  { schedule = "30 10 * * 1-5" } # 10:30 UTC Mon-Fri = 16:00 IST
     time_zone = "UTC"
   }
 }
@@ -147,8 +133,7 @@ DOTENV
   }
 
   resource_policies = var.enable_schedule ? [
-    google_compute_resource_policy.vm_schedule_mon[0].id,
-    google_compute_resource_policy.vm_schedule_tue_fri[0].id,
+    google_compute_resource_policy.vm_schedule[0].id,
   ] : []
 
   depends_on = [google_project_service.apis]
