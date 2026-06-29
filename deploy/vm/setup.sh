@@ -8,9 +8,9 @@ APP_DIR="/opt/stock-research"
 APP_USER="stock"
 VENV="$APP_DIR/venv"
 
-# System deps
+# System deps (python3 = 3.11 on Debian 12, sufficient for this project)
 apt-get update -q
-apt-get install -y -q python3.12 python3.12-venv git nginx certbot python3-certbot-nginx \
+apt-get install -y -q python3 python3-venv git nginx certbot python3-certbot-nginx \
     gcc libxml2-dev libxslt-dev
 
 # App user
@@ -35,7 +35,7 @@ else
 fi
 
 # Virtualenv + deps
-sudo -u "$APP_USER" python3.12 -m venv "$VENV"
+sudo -u "$APP_USER" python3 -m venv "$VENV"
 sudo -u "$APP_USER" "$VENV/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 # systemd services
