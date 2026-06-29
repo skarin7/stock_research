@@ -47,20 +47,42 @@ systemctl restart stock-chat
 systemctl enable stock-scheduler
 systemctl restart stock-scheduler
 
+# TLS — self-signed cert using the VM's public IP (from GCP metadata).
+# Telegram accepts self-signed certs when the cert is passed to setWebhook.
+# If a domain is provided, use certbot instead for a proper Let's Encrypt cert.
+CERT="/etc/ssl/certs/telegram-webhook.crt"
+KEY="/etc/ssl/private/telegram-webhook.key"
+
+if [ -n "$DOMAIN" ]; then
+    # Let's Encrypt via certbot (requires DNS already pointing to this VM)
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}"
+else
+    # Self-signed cert — generate once, skip if already exists
+    if [ ! -f "$CERT" ]; then
+        VM_IP=$(curl -sf -H "Metadata-Flavor: Google" \
+            http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+        openssl req -x509 -newkey rsa:2048 \
+            -keyout "$KEY" -out "$CERT" \
+            -days 3650 -nodes -subj "/CN=${VM_IP}"
+        echo "Self-signed cert generated for IP: $VM_IP"
+    fi
+fi
+
 # nginx
 cp "$APP_DIR/deploy/vm/nginx.conf" /etc/nginx/sites-available/stock-research
 ln -sf /etc/nginx/sites-available/stock-research /etc/nginx/sites-enabled/stock-research
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl restart nginx
 
-# TLS (skip if no domain provided)
-if [ -n "$DOMAIN" ]; then
-    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}"
-fi
+# Print webhook registration command
+VM_IP=$(curl -sf -H "Metadata-Flavor: Google" \
+    http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip \
+    2>/dev/null || echo "<vm-ip>")
+WEBHOOK_HOST="${DOMAIN:-$VM_IP}"
+CERT_FLAG=$([ -z "$DOMAIN" ] && echo " --cert $CERT" || echo "")
 
 echo ""
 echo "Setup complete."
-echo "Next: copy .env to $APP_DIR/.env and run: systemctl restart stock-chat"
-if [ -n "$DOMAIN" ]; then
-    echo "Then register webhook: python scripts/set_webhook.py https://$DOMAIN/telegram/webhook"
-fi
+echo "Register Telegram webhook (run locally, once):"
+echo "  gcloud compute scp stock@\$(hostname):/etc/ssl/certs/telegram-webhook.crt /tmp/telegram-webhook.crt --zone=asia-south1-a"
+echo "  python scripts/set_webhook.py https://${WEBHOOK_HOST}/telegram/webhook${CERT_FLAG}"
