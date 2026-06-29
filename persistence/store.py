@@ -537,18 +537,18 @@ def lookup_chat_cache_semantic(
                 .limit(limit)
                 .all()
             )
-        if not rows:
-            return None
+            if not rows:
+                return None
 
-        q = np.array(embedding, dtype=np.float32)
-        best_sim, best_resp = 0.0, None
-        for row in rows:
-            if not row.query_embedding:
-                continue
-            v = np.array(row.query_embedding, dtype=np.float32)
-            sim = float(np.dot(q, v))
-            if sim > best_sim:
-                best_sim, best_resp = sim, row.response
+            q = np.array(embedding, dtype=np.float32)
+            best_sim, best_resp = 0.0, None
+            for row in rows:
+                if not row.query_embedding:
+                    continue
+                v = np.array(row.query_embedding, dtype=np.float32)
+                sim = float(np.dot(q, v))
+                if sim > best_sim:
+                    best_sim, best_resp = sim, row.response
 
         return best_resp if best_sim >= threshold else None
     except Exception as e:
