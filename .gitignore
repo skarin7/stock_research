@@ -1,4 +1,5 @@
 .serena/
+certs/
 .vscode/
 .claude/
 .env
