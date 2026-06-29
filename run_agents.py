@@ -1,7 +1,8 @@
 """Multi-agent entrypoint (parallel to main.py).
 
     python run_agents.py --mode research|paper|live [--dry-run] [--date YYYY-MM-DD]
-    python run_agents.py --mode monitor             # market-hours stop-loss watch
+    python run_agents.py --mode watch               # merged monitor + pulse watcher
+    python run_agents.py --mode intraday            # evening next-day watchlist scorer
     python run_agents.py --resume <run_id> --approve <id> [--reject <id>]
     python run_agents.py --kill | --unkill          # toggle the kill-switch flag
 
@@ -12,6 +13,7 @@ through the LangGraph orchestrator (research → analyst → finalize → memory
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import logging
 import os
 import sys
@@ -26,10 +28,11 @@ logger = logging.getLogger("run_agents")
 
 def parse_args():
     p = argparse.ArgumentParser(description="Stock Intelligence — multi-agent runner")
-    p.add_argument("--mode", choices=["research", "paper", "live", "monitor", "pulse"], default=None,
-                   help="Override AGENT_MODE")
+    p.add_argument("--mode", choices=["research", "paper", "live", "watch", "intraday"], default=None,
+                   help="Run mode")
     p.add_argument("--date", help="Trading date (YYYY-MM-DD); defaults to today")
     p.add_argument("--dry-run", action="store_true", help="Limit to DRY_RUN_STOCK_COUNT stocks")
+    p.add_argument("--no-telegram", action="store_true", help="Skip Telegram notification")
     p.add_argument("--kill", action="store_true", help="Engage the kill-switch and exit")
     p.add_argument("--unkill", action="store_true", help="Clear the kill-switch and exit")
     # Resume a run suspended at the trade-approval interrupt (needs DATABASE_URL).
@@ -67,8 +70,6 @@ def main():
         _resume(args.resume, args.approve or [], args.reject or [])
         return
 
-    if args.mode:
-        os.environ["AGENT_MODE"] = args.mode
     from config import SETTINGS
 
     from agents.state import RunStatus
@@ -77,21 +78,20 @@ def main():
     report_date = date.fromisoformat(args.date) if args.date else date.today()
     run_id = f"{report_date.isoformat()}-{uuid.uuid4().hex[:8]}"
 
-    # Monitoring is a separate short, scheduled flow (market hours) — not the
-    # full research→…→trade pipeline.
-    if SETTINGS.AGENT_MODE == "monitor":
-        _monitor(run_id, report_date, RunStatus)
+    # watch and intraday are short, scheduled flows — not the full pipeline.
+    if args.mode == "watch":
+        _watch(run_id, report_date)
         return
 
-    if SETTINGS.AGENT_MODE == "pulse":
-        _pulse(run_id, report_date, RunStatus)
+    if args.mode == "intraday":
+        _intraday(run_id, report_date, args)
         return
 
     from persistence.db import init_db
     init_db()  # creates app tables (daily_snapshot, runs, etc.) if DATABASE_URL is set
 
     from agents.graph import build_graph
-    logger.info("=== Agent run %s | mode=%s dry_run=%s ===", run_id, SETTINGS.AGENT_MODE, args.dry_run)
+    logger.info("=== Agent run %s | trading_mode=%s dry_run=%s ===", run_id, SETTINGS.TRADING_MODE, args.dry_run)
 
     start_metrics_server()
 
@@ -99,7 +99,7 @@ def main():
     initial = {
         "run_id": run_id,
         "report_date": report_date.isoformat(),
-        "mode": SETTINGS.AGENT_MODE,
+        "mode": SETTINGS.TRADING_MODE,
         "dry_run": args.dry_run,
         "status": RunStatus.RUNNING,
         "cost_usd": 0.0,
@@ -138,44 +138,89 @@ def main():
         sys.exit(1)
 
 
-def _monitor(run_id: str, report_date, RunStatus) -> None:
-    from config import SETTINGS
+def _market_open_ist() -> bool:
+    """Return True if current IST time is within NSE market hours (09:15–15:30)."""
+    try:
+        import pytz
+        ist = pytz.timezone("Asia/Kolkata")
+        now = _dt.datetime.now(ist).time()
+    except ImportError:
+        utc_now = _dt.datetime.now(_dt.timezone.utc)
+        now = (utc_now + _dt.timedelta(hours=5, minutes=30)).time()
+    return _dt.time(9, 15) <= now <= _dt.time(15, 30)
 
-    from agents.graph import build_monitor_graph
-    from observability.metrics import start_metrics_server
 
-    start_metrics_server()
-    logger.info("=== Monitor run %s ===", run_id)
-    graph = build_monitor_graph()
-    initial = {"run_id": run_id, "report_date": report_date.isoformat(), "mode": "monitor",
-               "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
-    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": SETTINGS.MAX_GRAPH_STEPS}
-    final = graph.invoke(initial, cfg)
+def _pre_open_ist() -> bool:
+    """Return True if current IST time is before market open (i.e. before 09:15)."""
+    try:
+        import pytz
+        ist = pytz.timezone("Asia/Kolkata")
+        now = _dt.datetime.now(ist).time()
+    except ImportError:
+        utc_now = _dt.datetime.now(_dt.timezone.utc)
+        now = (utc_now + _dt.timedelta(hours=5, minutes=30)).time()
+    return now < _dt.time(9, 15)
+
+
+def _watch(run_id: str, report_date) -> None:
+    """Merged monitor + pulse watcher. Calls node logic directly — no LangGraph graph."""
+    from agents.state import RunStatus
+    logger.info("=== Watch run %s ===", run_id)
+
+    if not _market_open_ist() and not _pre_open_ist():
+        logger.info("watch: outside market hours — no-op")
+        return
+
+    state = {
+        "run_id": run_id,
+        "report_date": str(report_date),
+        "mode": "watch",
+        "status": RunStatus.RUNNING,
+        "cost_usd": 0.0,
+        "tokens": 0,
+    }
+
+    if _market_open_ist():
+        from agents.nodes.monitoring import monitoring_node
+        result = monitoring_node(state)
+        state.update(result)
+        alerts = state.get("alerts") or []
+        logger.info("watch(monitor): %d alert(s)", len(alerts))
+
+    from agents.nodes.pulse import pulse_node
+    result = pulse_node(state)
+    state.update(result)
+    alerts = state.get("alerts") or []
+    logger.info("watch(pulse): %d alert(s)", len(alerts))
+
     from observability.metrics import push_metrics
-    push_metrics(job="stock-intelligence-monitor")
-    alerts = final.get("alerts") or []
-    logger.info("=== Monitor %s done → %s (%d alert(s)) ===",
-                run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))
+    push_metrics(job="stock-intelligence-watch")
 
 
-def _pulse(run_id: str, report_date, RunStatus) -> None:
-    from config import SETTINGS
+def _intraday(run_id: str, report_date, args) -> None:
+    """Evening intraday scorer — builds and delivers next-day watchlist."""
+    from intraday.pipeline import run_pipeline
+    from intraday import data_sources
+    import intraday.report as _report
 
-    from agents.graph import build_pulse_graph
-    from observability.metrics import start_metrics_server
+    logger.info("=== Intraday run %s ===", run_id)
+    from datetime import date as _date
+    ref = _date.fromisoformat(str(report_date)) if isinstance(report_date, str) else report_date
+    dry_run = getattr(args, "dry_run", False)
+    watchlist = run_pipeline(report_date=ref, dry_run=dry_run)
 
-    start_metrics_server()
-    logger.info("=== Pulse run %s ===", run_id)
-    graph = build_pulse_graph()
-    initial = {"run_id": run_id, "report_date": report_date.isoformat(), "mode": "pulse",
-               "status": RunStatus.RUNNING, "cost_usd": 0.0, "tokens": 0}
-    cfg = {"configurable": {"thread_id": run_id}, "recursion_limit": SETTINGS.MAX_GRAPH_STEPS}
-    final = graph.invoke(initial, cfg)
-    from observability.metrics import push_metrics
-    push_metrics(job="stock-intelligence-pulse")
-    alerts = final.get("alerts") or []
-    logger.info("=== Pulse %s done → %s (%d alert(s)) ===",
-                run_id, getattr(final.get("status"), "value", final.get("status")), len(alerts))
+    json_path = _report.write_watchlist(watchlist, ref)
+
+    nifty_chg = data_sources.nifty_change_pct(ref)
+    alert = _report.build_alert(watchlist, ref, nifty_chg)
+    plain = alert.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+    logger.info("Intraday alert:\n%s", plain)
+
+    if not getattr(args, "no_telegram", False):
+        from notifications.telegram_notifier import send_intraday_watchlist
+        send_intraday_watchlist(alert)
+
+    logger.info("=== Intraday done: %d items (%s) ===", len(watchlist), json_path)
 
 
 def _resume(run_id: str, approve: list, reject: list) -> None:
