@@ -102,7 +102,7 @@ def build_chat_agent(checkpointer=None):
     from agents.chat.tools import CHAT_TOOLS
     from agents.graph import get_checkpointer
     from agents.llm import get_chat_model
-    import agents.llm_router as _llm_router
+    import llm_router as _llm_router
 
     model = get_chat_model(
         model=getattr(SETTINGS, "CHAT_MODEL", "") or _llm_router.chat_model(),

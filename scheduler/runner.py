@@ -14,17 +14,10 @@ log = logging.getLogger("scheduler")
 
 POLL_INTERVAL = 30  # seconds
 
-# Seeded into the DB on first run if the schedules table is empty.
-# Override by editing the schedules table in Postgres directly.
-# All cron expressions are evaluated in UTC (VM runs in UTC).
-#
-#   "30 6 * * 1-5"   →  06:30 UTC = 12:00 IST, Mon–Fri
-#   "30 18 * * 1-5"  →  18:30 UTC = 00:00 IST, Mon–Fri (midnight, next-day watchlist)
-#   "*/3 * * * 1-5"  →  every 3 min, Mon–Fri (intraday market watch)
 _DEFAULT_SCHEDULES = [
-    {"name": "research", "mode": "research", "cron_expr": "30 6 * * 1-5"},   # 12:00 IST Mon-Fri
-    {"name": "intraday", "mode": "intraday", "cron_expr": "30 18 * * 1-5"},  # 00:00 IST Mon-Fri
-    {"name": "watch",    "mode": "watch",    "cron_expr": "*/3 * * * 1-5"},  # every 3 min Mon-Fri
+    {"name": "research", "mode": "research", "cron_expr": "30 6 * * 1-5"},
+    {"name": "intraday", "mode": "intraday", "cron_expr": "30 18 * * 1-5"},
+    {"name": "watch",    "mode": "watch",    "cron_expr": "*/3 * * * 1-5"},
 ]
 
 _running = True
@@ -60,7 +53,8 @@ def _due_schedules(now: datetime):
         rows = session.query(ScheduleRow).filter_by(enabled=True).all()
         for row in rows:
             try:
-                it = croniter(row.cron_expr, start_time=now.timestamp() - POLL_INTERVAL)
+                it = croni
+                ter(row.cron_expr, start_time=now.timestamp() - POLL_INTERVAL)
                 next_ts = it.get_next(float)
                 if next_ts <= now.timestamp():
                     due.append((row.name, row.mode))
@@ -70,10 +64,10 @@ def _due_schedules(now: datetime):
 
 
 def _run_mode(name: str, mode: str):
-    log.info("Running schedule '%s' → run_agents.py --mode %s", name, mode)
+    log.info("Running schedule '%s' → run_agents.py %s", name, mode)
     try:
         result = subprocess.run(
-            [sys.executable, "run_agents.py", "--mode", mode],
+            [sys.executable, "run_agents.py", mode],
             capture_output=False,
         )
         if result.returncode != 0:
