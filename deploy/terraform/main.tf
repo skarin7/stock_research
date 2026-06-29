@@ -118,15 +118,21 @@ resource "google_compute_instance" "vm" {
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -q
       apt-get install -y -q git
+      # Create stock user if not exists (setup.sh also does this, but we need it before chown).
+      id stock &>/dev/null || useradd -m -s /bin/bash stock
       if [ ! -d /opt/stock-research/.git ]; then
         git clone https://github.com/skarin7/stock_research /opt/stock-research
       fi
+      # Ensure stock user owns the entire repo so git pull + service restarts work.
+      chown -R stock:stock /opt/stock-research
       # Write .env from Terraform vars on first boot only.
-      # To push new vars after provisioning: edit .env on VM + restart services.
+      # To update after provisioning: edit /opt/stock-research/.env on the VM.
       if [ ! -f /opt/stock-research/.env ]; then
         cat > /opt/stock-research/.env <<'DOTENV'
 ${local.dotenv}
 DOTENV
+        chown stock:stock /opt/stock-research/.env
+        chmod 600 /opt/stock-research/.env
       fi
       bash /opt/stock-research/deploy/vm/setup.sh
     STARTUP
