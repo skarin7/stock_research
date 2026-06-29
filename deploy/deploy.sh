@@ -56,17 +56,23 @@ if $PLAN_ONLY; then
 fi
 
 # ── Detect if terraform apply is needed ───────────────────────────────────────
-# Trigger: no state file, OR any .tf / .tfvars file newer than state.
+# Triggers: no state, .tf/.tfvars newer than state, OR VM doesn't exist in GCP.
+VM_EXISTS=$(gcloud compute instances describe "$VM_NAME" --zone="$VM_ZONE" \
+  --format="value(status)" 2>/dev/null || echo "NOT_FOUND")
+
 TF_NEEDED=false
 if [[ ! -f terraform.tfstate ]]; then
   TF_NEEDED=true
-  log "No terraform state found — will provision VM"
+  log "No terraform state — will provision VM"
+elif [[ "$VM_EXISTS" == "NOT_FOUND" ]]; then
+  TF_NEEDED=true
+  log "VM not found in GCP — will provision"
 elif find "$TF_DIR" -maxdepth 1 \( -name "*.tf" -o -name "terraform.tfvars" \) \
     -newer terraform.tfstate | grep -q .; then
   TF_NEEDED=true
   log "Terraform files changed — will apply infra changes"
 else
-  log "No terraform changes detected — skipping terraform (code-only deploy)"
+  log "No changes detected — skipping terraform (code-only deploy)"
 fi
 
 # ── Phase 1: Terraform (when needed) ──────────────────────────────────────────
@@ -79,11 +85,12 @@ fi
 # ── Phase 2: Code deploy ───────────────────────────────────────────────────────
 log "Code deploy → $VM_NAME ($VM_ZONE)"
 
+# Re-check status after terraform may have just created the VM.
 STATUS=$(gcloud compute instances describe "$VM_NAME" --zone="$VM_ZONE" \
   --format="value(status)" 2>/dev/null || echo "NOT_FOUND")
 
 if [[ "$STATUS" == "NOT_FOUND" ]]; then
-  echo "✗ VM $VM_NAME not found. Check terraform apply output above." >&2
+  echo "✗ VM $VM_NAME still not found — terraform may have failed." >&2
   exit 1
 fi
 
