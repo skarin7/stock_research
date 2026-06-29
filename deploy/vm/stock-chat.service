@@ -7,6 +7,7 @@ Type=simple
 User=stock
 WorkingDirectory=/opt/stock-research
 EnvironmentFile=/opt/stock-research/.env
+Environment=PYTHONPATH=/opt/stock-research
 ExecStart=/opt/stock-research/venv/bin/uvicorn server.app:app \
     --host 127.0.0.1 \
     --port 8080 \
