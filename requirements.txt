@@ -34,3 +34,4 @@ prometheus-client>=0.20.0
 # existing `openai` client; cosine math needs numpy (already pulled by pandas,
 # pinned here for clarity).
 numpy>=1.24.0
+croniter>=1.3

@@ -28,11 +28,14 @@ fi
 sudo -u "$APP_USER" python3.12 -m venv "$VENV"
 sudo -u "$APP_USER" "$VENV/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
-# systemd service
+# systemd services
 cp "$APP_DIR/deploy/vm/stock-chat.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/vm/stock-scheduler.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable stock-chat
 systemctl restart stock-chat
+systemctl enable stock-scheduler
+systemctl restart stock-scheduler
 
 # nginx
 cp "$APP_DIR/deploy/vm/nginx.conf" /etc/nginx/sites-available/stock-research
@@ -44,9 +47,6 @@ nginx -t && systemctl restart nginx
 if [ -n "$DOMAIN" ]; then
     certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}"
 fi
-
-# Crontab for app user
-crontab -u "$APP_USER" "$APP_DIR/deploy/vm/crontab"
 
 echo ""
 echo "Setup complete."
