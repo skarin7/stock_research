@@ -38,6 +38,11 @@ fi
 sudo -u "$APP_USER" python3 -m venv "$VENV"
 sudo -u "$APP_USER" "$VENV/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
+# DB migrations (no-op when DATABASE_URL is unset)
+if grep -q "^DATABASE_URL=" "$APP_DIR/.env" 2>/dev/null; then
+    sudo -u "$APP_USER" "$VENV/bin/alembic" -c "$APP_DIR/alembic.ini" upgrade head
+fi
+
 # systemd services
 cp "$APP_DIR/deploy/vm/stock-chat.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/vm/stock-scheduler.service" /etc/systemd/system/
