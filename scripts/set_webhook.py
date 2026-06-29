@@ -1,10 +1,14 @@
 """Register the Telegram webhook URL with the bot (run once after deploy).
 
 Usage:
-    python scripts/set_webhook.py <WEBHOOK_URL>
+    python scripts/set_webhook.py <WEBHOOK_URL> [--cert /path/to/cert.crt]
 
-Example:
-    python scripts/set_webhook.py https://chat-xyz.run.app/telegram/webhook
+Examples:
+    # Domain with valid TLS (no cert needed)
+    python scripts/set_webhook.py https://yourdomain.com/telegram/webhook
+
+    # VM IP with self-signed cert (cert must be passed so Telegram trusts it)
+    python scripts/set_webhook.py https://<vm-ip>/telegram/webhook --cert /tmp/telegram-webhook.crt
 
 The script uses TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET from .env.
 """
@@ -27,10 +31,16 @@ import requests  # noqa: E402
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python scripts/set_webhook.py <WEBHOOK_URL>")
+        print("Usage: python scripts/set_webhook.py <WEBHOOK_URL> [--cert /path/to/cert.crt]")
         sys.exit(1)
 
     url = sys.argv[1]
+    cert_path: str | None = None
+    args = sys.argv[2:]
+    if "--cert" in args:
+        idx = args.index("--cert")
+        cert_path = args[idx + 1]
+
     if not SETTINGS.TELEGRAM_BOT_TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN not set")
         sys.exit(1)
@@ -40,7 +50,14 @@ def main() -> None:
     if SETTINGS.TELEGRAM_WEBHOOK_SECRET:
         params["secret_token"] = SETTINGS.TELEGRAM_WEBHOOK_SECRET
 
-    resp = requests.post(f"{base}/setWebhook", json=params, timeout=10)
+    if cert_path:
+        # Telegram requires multipart/form-data when passing a self-signed cert.
+        with open(cert_path, "rb") as f:
+            resp = requests.post(f"{base}/setWebhook", data=params,
+                                 files={"certificate": f}, timeout=10)
+    else:
+        resp = requests.post(f"{base}/setWebhook", json=params, timeout=10)
+
     resp.raise_for_status()
     data = resp.json()
     if data.get("ok"):
