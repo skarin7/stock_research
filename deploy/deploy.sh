@@ -106,8 +106,8 @@ gcloud compute ssh "stock@${VM_NAME}" --zone="$VM_ZONE" --command="
   cd /opt/stock-research
   echo '--- git pull ---'
   git pull
-  echo '--- restarting services ---'
-  sudo systemctl restart stock-chat stock-scheduler
+  echo '--- setup (idempotent: cert/nginx/units) ---'
+  sudo bash deploy/vm/setup.sh
   echo '--- status ---'
   sudo systemctl is-active stock-chat stock-scheduler
 "
