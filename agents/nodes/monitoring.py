@@ -56,8 +56,18 @@ def _notify(alerts: list[Alert]) -> None:
     _send_text(SETTINGS.TELEGRAM_CHAT_ID, f"<b>⚠️ Position alerts</b>\n{body}")
 
 
+def _prewarm_groww():
+    try:
+        from enrichment.market_data.groww import default_client
+        default_client()
+        logger.info("Groww token pre-warmed")
+    except Exception as e:
+        logger.warning("Groww pre-warm failed (yfinance fallback active): %s", e)
+
+
 @agent_node("monitor")
 def monitoring_node(state: AgentState) -> dict:
+    _prewarm_groww()
     book = state.get("book") or load_portfolio()
     if not book.positions:
         logger.info("monitor: no open positions")

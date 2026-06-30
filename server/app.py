@@ -38,6 +38,15 @@ async def _startup():
     setup_logging()
     from persistence.db import init_db
     init_db()
+    try:
+        from enrichment.market_data.groww import default_client
+        import asyncio
+        await asyncio.get_event_loop().run_in_executor(None, default_client)
+        import logging
+        logging.getLogger(__name__).info("Groww token pre-warmed at server startup")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Groww pre-warm failed at startup: %s", e)
 
 
 def _settings():
