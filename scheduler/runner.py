@@ -66,7 +66,7 @@ def _run_mode(name: str, mode: str):
     log.info("Running schedule '%s' → run_agents.py %s", name, mode)
     try:
         result = subprocess.run(
-            [sys.executable, "run_agents.py", mode],
+            [sys.executable, "run_agents.py", "--mode", mode],
             capture_output=False,
         )
         if result.returncode != 0:

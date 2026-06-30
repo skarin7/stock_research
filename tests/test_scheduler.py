@@ -167,8 +167,21 @@ class TestDueSchedules:
         rows = [_Row("watch", "watch", "*/3 * * * 1-5")]
         with _patch_session(rows):
             runner = _load_runner()
-            # Should not raise NameError regardless of result
             try:
                 runner._due_schedules(datetime.now(timezone.utc))
             except NameError as e:
                 pytest.fail(f"NameError in _due_schedules: {e}")
+
+
+class TestRunMode:
+    def test_subprocess_uses_mode_flag(self):
+        """Regression: run_agents.py must receive --mode <mode>, not bare positional."""
+        with _patch_session([]):
+            runner = _load_runner()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            runner._run_mode("watch", "watch")
+        args = mock_run.call_args[0][0]
+        assert "--mode" in args
+        assert "watch" in args
+        assert args[args.index("--mode") + 1] == "watch"
