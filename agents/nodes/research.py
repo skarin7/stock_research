@@ -89,6 +89,16 @@ def research_node(state: AgentState) -> dict:
         stock["bulk_deals"] = bulk_map.get(sym, [])
 
     # ── Stage 3: Groww enrichment + fundamentals ──────────────────────────────
+    # Pre-warm Groww token into DB cache before the per-stock fallback loop.
+    # Without this, the first yfinance failure triggers a cold TOTP auth which
+    # may hit Groww's rate-limit if another process (watch) auth'd concurrently.
+    try:
+        from enrichment.market_data.groww import default_client
+        default_client()
+        logger.info("Groww token pre-warmed")
+    except Exception as e:
+        logger.warning("Groww pre-auth skipped (yfinance fallback will cover): %s", e)
+
     from enrichment.market_data import enrich_stocks
     stocks = enrich_stocks(stocks)
 
