@@ -75,8 +75,23 @@ def _run_mode(name: str, mode: str):
         log.error("Schedule '%s' failed: %s", name, e)
 
 
+def _prewarm_groww():
+    """Pre-warm Groww token into DB cache at scheduler startup.
+
+    All child processes (research, watch, intraday) load from DB instead of
+    racing for TOTP auth when they spawn concurrently.
+    """
+    try:
+        from enrichment.market_data.groww import default_client
+        default_client()
+        log.info("Groww token pre-warmed into DB cache")
+    except Exception as e:
+        log.warning("Groww pre-warm failed (subprocesses will auth independently): %s", e)
+
+
 def main():
     log.info("Stock scheduler started (poll=%ds)", POLL_INTERVAL)
+    _prewarm_groww()
     while _running:
         now = datetime.now(timezone.utc)
         try:
