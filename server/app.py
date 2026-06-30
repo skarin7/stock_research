@@ -46,7 +46,7 @@ async def _startup():
         logging.getLogger(__name__).info("Groww token pre-warmed at server startup")
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning("Groww pre-warm failed at startup: %s", e)
+        logging.getLogger(__name__).debug("Groww pre-warm skipped at startup: %s", e)
 
 
 def _settings():

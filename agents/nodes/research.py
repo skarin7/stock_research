@@ -97,7 +97,7 @@ def research_node(state: AgentState) -> dict:
         default_client()
         logger.info("Groww token pre-warmed")
     except Exception as e:
-        logger.warning("Groww pre-auth skipped (yfinance fallback will cover): %s", e)
+        logger.debug("Groww pre-auth skipped (yfinance fallback will cover): %s", e)
 
     from enrichment.market_data import enrich_stocks
     stocks = enrich_stocks(stocks)

@@ -62,7 +62,7 @@ def _prewarm_groww():
         default_client()
         logger.info("Groww token pre-warmed")
     except Exception as e:
-        logger.warning("Groww pre-warm failed (yfinance fallback active): %s", e)
+        logger.debug("Groww pre-warm skipped (yfinance fallback active): %s", e)
 
 
 @agent_node("monitor")

@@ -86,7 +86,7 @@ def _prewarm_groww():
         default_client()
         log.info("Groww token pre-warmed into DB cache")
     except Exception as e:
-        log.warning("Groww pre-warm failed (subprocesses will auth independently): %s", e)
+        log.debug("Groww pre-warm skipped (subprocesses will auth independently): %s", e)
 
 
 def main():

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date, timedelta
 
 logger = logging.getLogger("enrichment.market_pulse")
@@ -127,10 +128,19 @@ def classify_shock(headlines: list[str]) -> dict:
         prompt = _CLASSIFY_PROMPT.format(headlines="\n".join(f"- {h}" for h in headlines))
         resp = model.invoke(prompt)
         text = getattr(resp, "content", resp)
-        if isinstance(text, list):  # some providers return content blocks
+        if isinstance(text, list):
             text = "".join(getattr(b, "text", str(b)) for b in text)
-        start, end = text.find("{"), text.rfind("}")
+        # Strip markdown code fences
+        text = re.sub(r"```[a-z]*\n?", "", text).strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError(f"no JSON object in response: {text[:120]!r}")
         data = json.loads(text[start:end + 1])
+        if not isinstance(data, dict):
+            raise ValueError(f"expected dict from LLM, got {type(data).__name__}")
+        # Normalise keys — some models wrap them in extra quotes
+        data = {k.strip('"'): v for k, v in data.items()}
         return {
             "is_shock": bool(data.get("is_shock", False)),
             "severity": str(data.get("severity", "low")),
