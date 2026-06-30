@@ -3,6 +3,7 @@ certs/
 .vscode/
 .claude/
 .env
+deploy/prod.env
 __pycache__/
 *.pyc
 *.pyo

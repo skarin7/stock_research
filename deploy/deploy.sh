@@ -101,8 +101,14 @@ if [[ "$STATUS" != "RUNNING" ]]; then
   sleep 20
 fi
 
+# Push prod.env on every deploy — edit deploy/prod.env locally to update secrets.
+log "Syncing prod.env → VM"
+[[ -f "$REPO_ROOT/deploy/prod.env" ]] || { echo "✗ deploy/prod.env not found — copy .env.example and fill in prod values." >&2; exit 1; }
+gcloud compute scp "$REPO_ROOT/deploy/prod.env" "stock@${VM_NAME}:/opt/stock-research/.env" --zone="$VM_ZONE"
+
 gcloud compute ssh "stock@${VM_NAME}" --zone="$VM_ZONE" --command="
   set -euo pipefail
+  chmod 600 /opt/stock-research/.env
   cd /opt/stock-research
   echo '--- git pull ---'
   git pull

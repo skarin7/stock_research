@@ -304,6 +304,8 @@ That's it. The script auto-detects whether terraform needs to run (any `.tf` / `
 
 ```bash
 bash deploy/deploy.sh --no-schedule   # VM stays up, no auto-stop
+
+gcloud compute ssh stock@stock-intelligence-vm --zone asia-south1-a #SSH into the VM
 ```
 
 Re-enable the schedule when done:

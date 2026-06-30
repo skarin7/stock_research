@@ -1,56 +1,14 @@
-# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
-# Alternatively export TF_VAR_<name> environment variables (preferred in CI).
+# Infra-only vars — no app secrets here.
+# App config (API keys, tokens, DB URL, Groww creds etc.) lives in deploy/prod.env (gitignored).
+# Setup: cp .env.example deploy/prod.env  →  fill in prod values.
 
-# --- GCP (defaults already match your project; override if needed) ---
+# --- GCP (defaults already match the project; override if needed) ---
 # project_id = "gen-lang-client-0533266855"
 # region     = "asia-south1"
+# vm_zone    = "asia-south1-a"
 
-# --- Required (keep even if using OpenRouter — chat agent falls back to Anthropic) ---
-anthropic_api_key = "sk-ant-..."
+# --- VM ---
+vm_ssh_pub_key = "ssh-ed25519 AAAA..."
 
-# --- Durable state: Neon serverless Postgres connection string ---
-# Create a free project at https://neon.tech, copy the pooled connection string.
-# Leave empty to run research-only with in-memory state (no resumable runs).
-database_url = "postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require"
-
-# --- Observability: Langfuse Cloud (managed, free tier) ---
-# Create a project at https://cloud.langfuse.com, copy the API keys.
-langfuse_public_key = "pk-lf-..."
-langfuse_secret_key = "sk-lf-..."
-langfuse_host       = "https://cloud.langfuse.com"
-# Optional batch metrics push (else leave empty — Langfuse covers LLM obs):
-# prometheus_pushgateway_url = "https://pushgateway.example.com"
-
-# --- Market data / news / delivery (optional but recommended) ---
-gemini_api_key       = ""
-groww_totp_token     = ""
-groww_totp_secret    = ""
-groww_token_enc_key  = ""  # passphrase to encrypt the cached Groww token at rest; generate: python -c "import secrets;print(secrets.token_urlsafe(32))"
-telegram_bot_token   = ""
-telegram_chat_id     = ""
-screener_email       = ""
-screener_password    = ""
-screener_screen_id   = ""
-screener_screen_slug = ""
-
-stock_universe = "nifty200"
-agent_profile  = "research"  # research | paper | live
-
-# --- LLM provider: "anthropic" or "openrouter" (10-50x cheaper, recommended) ---
-# OpenRouter routes to DeepSeek/Qwen etc. Anthropic Batch API discount does NOT apply via OpenRouter.
-llm_provider             = "openrouter"   # change to "anthropic" to use Haiku/Sonnet directly
-openrouter_api_key       = "sk-or-..."
-openrouter_scoring_model = "deepseek/deepseek-chat"
-openrouter_report_model  = "deepseek/deepseek-chat"
-
-# --- Chat + scheduler: both run on the VM via systemd (no extra config needed) ---
-# Telegram webhook secret — nginx passes this header to uvicorn for Telegram to verify.
-# telegram_webhook_secret = "some-random-string"
-# After first deploy, register the webhook once:
-#   python scripts/set_webhook.py https://<vm-ip>/telegram/webhook
-
-# --- OpenRouter chat model (used by agents/chat/agent.py) ---
-# openrouter_chat_model = "deepseek/deepseek-chat"
-
-# --- VM instance schedule (market hours only, set false to keep VM always-on) ---
-# enable_schedule = false   # disable to test outside market hours, then re-enable
+# --- Instance schedule (market hours only; set false to keep VM always-on) ---
+# enable_schedule = false

@@ -12,9 +12,3 @@ output "chat_webhook_url" {
   description = "Register with Telegram after nginx+TLS is up: python scripts/set_webhook.py <url>"
   value       = "https://${google_compute_address.vm_ip.address}/telegram/webhook"
 }
-
-output "durable_state" {
-  value       = var.database_url == "" ? "NO DATABASE_URL set — LangGraph falls back to in-memory (no resumable runs / no trade-approval persistence). Set database_url to your Neon connection string." : "Postgres configured."
-  description = "Whether durable agent/trading state is wired up."
-  sensitive   = true
-}

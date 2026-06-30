@@ -1,45 +1,6 @@
 locals {
-  # All env vars written to /opt/stock-research/.env on the VM.
-  # Empties are filtered so optional creds don't create blank entries.
-  env_all = merge(
-    {
-      ANTHROPIC_API_KEY          = var.anthropic_api_key
-      DATABASE_URL               = var.database_url
-      LANGFUSE_PUBLIC_KEY        = var.langfuse_public_key
-      LANGFUSE_SECRET_KEY        = var.langfuse_secret_key
-      LANGFUSE_HOST              = var.langfuse_host
-      PROMETHEUS_PUSHGATEWAY_URL = var.prometheus_pushgateway_url
-      GEMINI_API_KEY             = var.gemini_api_key
-      GROWW_ACCESS_TOKEN         = var.groww_access_token
-      GROWW_TOTP_TOKEN           = var.groww_totp_token
-      GROWW_TOTP_SECRET          = var.groww_totp_secret
-      GROWW_TOKEN_ENC_KEY        = var.groww_token_enc_key
-      TELEGRAM_BOT_TOKEN         = var.telegram_bot_token
-      TELEGRAM_CHAT_ID           = var.telegram_chat_id
-      TELEGRAM_WEBHOOK_SECRET    = var.telegram_webhook_secret
-      SCREENER_EMAIL             = var.screener_email
-      SCREENER_PASSWORD          = var.screener_password
-      SCREENER_SCREEN_ID         = var.screener_screen_id
-      SCREENER_SCREEN_SLUG       = var.screener_screen_slug
-      STOCK_UNIVERSE             = var.stock_universe
-      TRADING_MODE               = var.trading_mode
-      LLM_PROVIDER               = var.llm_provider
-      OPENROUTER_API_KEY         = var.openrouter_api_key
-      OPENROUTER_BASE_URL        = var.openrouter_base_url
-      OPENROUTER_SCORING_MODEL   = var.openrouter_scoring_model
-      OPENROUTER_REPORT_MODEL    = var.openrouter_report_model
-      OPENROUTER_CHAT_MODEL      = var.openrouter_chat_model
-      TAVILY_API_KEY             = var.tavily_api_key
-    },
-    var.extra_env,
-  )
-
-  env_vars = { for k, v in local.env_all : k => v if v != "" }
-
-  # Rendered .env file written to the VM on first boot.
-  # To update config after provisioning: edit /opt/stock-research/.env on the VM
-  # and restart services: sudo systemctl restart stock-chat stock-scheduler
-  dotenv = join("\n", [for k, v in local.env_vars : "${k}=${v}"])
+  # No app vars here — app config lives in deploy/prod.env, pushed by deploy.sh.
+  # Only infra-level locals needed by resources below.
 }
 
 # ── APIs ────────────────────────────────────────────────────────────────────────
@@ -118,22 +79,12 @@ resource "google_compute_instance" "vm" {
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -q
       apt-get install -y -q git
-      # Create stock user if not exists (setup.sh also does this, but we need it before chown).
       id stock &>/dev/null || useradd -m -s /bin/bash stock
       if [ ! -d /opt/stock-research/.git ]; then
         git clone https://github.com/skarin7/stock_research /opt/stock-research
       fi
-      # Ensure stock user owns the entire repo so git pull + service restarts work.
       chown -R stock:stock /opt/stock-research
-      # Write .env from Terraform vars on first boot only.
-      # To update after provisioning: edit /opt/stock-research/.env on the VM.
-      if [ ! -f /opt/stock-research/.env ]; then
-        cat > /opt/stock-research/.env <<'DOTENV'
-${local.dotenv}
-DOTENV
-        chown stock:stock /opt/stock-research/.env
-        chmod 600 /opt/stock-research/.env
-      fi
+      # .env is pushed by deploy.sh from deploy/prod.env — no bootstrap write here.
       bash /opt/stock-research/deploy/vm/setup.sh
     STARTUP
   }
