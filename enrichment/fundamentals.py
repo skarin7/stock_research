@@ -17,6 +17,7 @@ from datetime import date
 from typing import Optional
 
 import yfinance as yf
+from config import SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -112,12 +113,15 @@ def enrich_fundamentals(stocks: list[dict], ref_date: Optional[date] = None) -> 
             "point-in-time — scores are look-ahead-biased, do NOT use for validation",
             ref.isoformat(),
         )
-    enriched = []
-    for i, stock in enumerate(stocks):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    workers = getattr(SETTINGS, "FUNDAMENTALS_WORKERS", 8)
+
+    def _enrich_one(indexed_stock: tuple[int, dict]) -> tuple[int, dict]:
+        idx, stock = indexed_stock
         sym = stock["symbol"]
-        logger.info("Fundamentals %d/%d: %s", i + 1, len(stocks), sym)
+        logger.info("Fundamentals %d/%d: %s", idx + 1, len(stocks), sym)
         stock = dict(stock)
-        time.sleep(_DELAY)
 
         info, tk = {}, None
         try:
@@ -137,7 +141,7 @@ def enrich_fundamentals(stocks: list[dict], ref_date: Optional[date] = None) -> 
         if fpe is not None:
             stock["forward_pe"] = round(fpe, 2)
         if stock.get("market_cap_cr") is None and mcap is not None:
-            stock["market_cap_cr"] = round(mcap / 1e7, 2)  # INR → crores
+            stock["market_cap_cr"] = round(mcap / 1e7, 2)
         if sector:
             stock["sector"] = sector
 
@@ -149,7 +153,15 @@ def enrich_fundamentals(stocks: list[dict], ref_date: Optional[date] = None) -> 
             stock.update(_earnings_dates(tk, ref))
 
         stock["pit_safe"] = pit_safe
-        enriched.append(stock)
+        return idx, stock
 
+    results: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_enrich_one, (i, s)): i for i, s in enumerate(stocks)}
+        for fut in as_completed(futures):
+            idx, stock = fut.result()
+            results[idx] = stock
+
+    enriched = [results[i] for i in range(len(stocks))]
     _assign_sector_pe(enriched)
     return enriched

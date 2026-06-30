@@ -130,17 +130,21 @@ def _extract_scorecard(text: str, sym: str) -> Optional[dict]:
 
 def _score_openrouter(stocks: list[dict], news_map: dict[str, dict], macro_context: str,
                       sector_map: Optional[dict] = None) -> list[dict]:
-    """Score via OpenRouter (OpenAI-compatible). One sync call per stock — no Batch API."""
+    """Score via OpenRouter (OpenAI-compatible). Parallel workers — no Batch API."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     sector_map = sector_map or {}
-    client = llm_router.openrouter_client()
+    workers = getattr(SETTINGS, "OPENROUTER_WORKERS", 10)
     model = llm_router.scoring_model()
-    all_scores = []
-    for stock in stocks:
+
+    def _score_one(stock: dict) -> Optional[dict]:
         sym = stock["symbol"]
         headlines = news_map.get(sym, {}).get("headlines", [])
         sector_macro = sector_map.get(stock.get("sector"))
         user_content = build_user_prompt(stock, headlines, macro_context, sector_macro)
         try:
+            # Each thread gets its own client instance (not thread-safe to share)
+            client = llm_router.openrouter_client()
             resp = client.chat.completions.create(
                 model=model,
                 max_tokens=1024,
@@ -150,11 +154,18 @@ def _score_openrouter(stocks: list[dict], news_map: dict[str, dict], macro_conte
                 ],
             )
             text = resp.choices[0].message.content if resp.choices else ""
-            scorecard = _extract_scorecard(text, sym)
-            if scorecard:
-                all_scores.append(scorecard)
+            return _extract_scorecard(text, sym)
         except Exception as e:
             logger.error("OpenRouter scoring failed for %s: %s", sym, e)
+            return None
+
+    all_scores = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_score_one, s): s["symbol"] for s in stocks}
+        for fut in as_completed(futures):
+            result = fut.result()
+            if result:
+                all_scores.append(result)
     return all_scores
 
 

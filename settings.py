@@ -119,6 +119,10 @@ class Settings:
     DRY_RUN_STOCK_COUNT: int = 5
     GROWW_RATE_LIMIT_DELAY_MS: int = 200
     SCORING_BATCH_SIZE: int = 10
+    ENRICH_WORKERS: int = 10        # parallel market-data (OHLCV/quote) fetches
+    FUNDAMENTALS_WORKERS: int = 8   # parallel yfinance fundamentals fetches
+    NEWS_WORKERS: int = 10          # parallel RSS news fetches
+    OPENROUTER_WORKERS: int = 10    # parallel OpenRouter scoring requests
     OHLC_LOOKBACK_DAYS: int = 60  # ≥35 for MACD(12,26,9) warmup + 20d breakout
     EARNINGS_PROXIMITY_DAYS: int = 5
     GROWW_BASE_URL: str = "https://api.groww.in/v1/market"

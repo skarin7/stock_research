@@ -124,13 +124,26 @@ def fetch_news(symbol: str, company: str = "") -> dict:
 
 
 def fetch_news_batch(stocks: list[dict]) -> dict[str, dict]:
-    """Fetch RSS headlines for all stocks; returns dict keyed by symbol."""
-    logger.info("News source: Google News RSS (trusted sources)")
-    results = {}
-    for i, stock in enumerate(stocks):
+    """Fetch RSS headlines for all stocks in parallel; returns dict keyed by symbol."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    workers = getattr(SETTINGS, "NEWS_WORKERS", 10)
+    logger.info("News source: Google News RSS (trusted sources), workers=%d", workers)
+
+    def _fetch_one(stock: dict) -> tuple[str, dict]:
         sym = stock["symbol"]
-        logger.info("Fetching news %d/%d: %s", i + 1, len(stocks), sym)
-        results[sym] = fetch_news(sym, stock.get("company", ""))
+        return sym, fetch_news(sym, stock.get("company", ""))
+
+    results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch_one, s): s["symbol"] for s in stocks}
+        done = 0
+        for fut in as_completed(futures):
+            sym, data = fut.result()
+            results[sym] = data
+            done += 1
+            if done % 10 == 0:
+                logger.info("News fetched %d/%d", done, len(stocks))
     return results
 
 
