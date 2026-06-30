@@ -43,39 +43,42 @@ class _RateLimiter:
     No-op when GROWW_RATE_LIMIT_DELAY_MS == 0 (tests / offline mode)."""
 
     def __init__(self, per_second: int = 8, per_minute: int = 250) -> None:
+        import threading
         self._per_second = per_second
         self._per_minute = per_minute
         self._window: Deque[float] = collections.deque()
+        self._lock = threading.Lock()
 
     def wait(self) -> None:
         if SETTINGS.GROWW_RATE_LIMIT_DELAY_MS == 0:
             return  # bypass in tests / dry-run
 
-        now = time.monotonic()
-
-        # Evict entries outside the 60-second window
-        while self._window and self._window[0] < now - 60.0:
-            self._window.popleft()
-
-        # Per-minute cap: pause until the oldest call falls out of the window
-        if len(self._window) >= self._per_minute:
-            sleep_for = (self._window[0] + 60.0) - now
-            if sleep_for > 0:
-                logger.info(
-                    "Groww rate limit: %d calls/min cap reached — pausing %.1fs",
-                    self._per_minute, sleep_for,
-                )
-                time.sleep(sleep_for)
+        with self._lock:
             now = time.monotonic()
+
+            # Evict entries outside the 60-second window
             while self._window and self._window[0] < now - 60.0:
                 self._window.popleft()
 
-        # Per-second cap: count calls in the last 1 s
-        recent = sum(1 for t in self._window if t > now - 1.0)
-        if recent >= self._per_second:
-            time.sleep(1.0 / self._per_second)
+            # Per-minute cap: pause until the oldest call falls out of the window
+            if len(self._window) >= self._per_minute:
+                sleep_for = (self._window[0] + 60.0) - now
+                if sleep_for > 0:
+                    logger.info(
+                        "Groww rate limit: %d calls/min cap reached — pausing %.1fs",
+                        self._per_minute, sleep_for,
+                    )
+                    time.sleep(sleep_for)
+                now = time.monotonic()
+                while self._window and self._window[0] < now - 60.0:
+                    self._window.popleft()
 
-        self._window.append(time.monotonic())
+            # Per-second cap: count calls in the last 1 s
+            recent = sum(1 for t in self._window if t > now - 1.0)
+            if recent >= self._per_second:
+                time.sleep(1.0 / self._per_second)
+
+            self._window.append(time.monotonic())
 
 
 # Module-level singleton — shared across all GrowwProvider instances in process.
