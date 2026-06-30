@@ -53,8 +53,7 @@ def _due_schedules(now: datetime):
         rows = session.query(ScheduleRow).filter_by(enabled=True).all()
         for row in rows:
             try:
-                it = croni
-                ter(row.cron_expr, start_time=now.timestamp() - POLL_INTERVAL)
+                it = croniter(row.cron_expr, start_time=now.timestamp() - POLL_INTERVAL)
                 next_ts = it.get_next(float)
                 if next_ts <= now.timestamp():
                     due.append((row.name, row.mode))
