@@ -14,11 +14,35 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _to_native(v: Any) -> Any:
+    """Recursively coerce numpy / pandas scalars to plain Python types.
+
+    yfinance/pandas leak ``numpy.float64``/``int64`` and ``pandas.Timestamp``
+    into the ``Any``-typed contract fields (``technicals``, ``extra``,
+    ``news_map`` …). LangGraph's msgpack checkpoint serde has an ndarray branch
+    but **no numpy-scalar branch**, so a stray ``np.float64`` makes the whole
+    ``EnrichmentResult`` fail to serialize (``TypeError: Type is not msgpack
+    serializable: EnrichmentResult`` — it names the top object, not the deep
+    offender). Sanitising at construction keeps checkpointed state (and JSON /
+    Telegram output) to native types only.
+    """
+    mod = type(v).__module__
+    if mod == "numpy":
+        return v.tolist() if hasattr(v, "tolist") else v.item()
+    if mod.startswith("pandas") and hasattr(v, "isoformat"):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {k: _to_native(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_to_native(x) for x in v]
+    return v
 
 
 # ── Research → Analyst ────────────────────────────────────────────────────────
@@ -46,6 +70,11 @@ class EnrichedStock(BaseModel):
     """Typed mirror of the stock dict that accumulates through Stages 1-4."""
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_native(cls, data: Any) -> Any:
+        return _to_native(data) if isinstance(data, dict) else data
 
     symbol: str
     company: str = ""
@@ -102,6 +131,13 @@ class EnrichmentResult(BaseModel):
     news_map: dict[str, dict] = Field(default_factory=dict)
     macro_context: str = ""
     sector_macro_map: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_native(cls, data: Any) -> Any:
+        # Sanitise news_map / sector_macro_map (Any-typed); EnrichedStock
+        # instances carry their own validator, so they pass through untouched.
+        return _to_native(data) if isinstance(data, dict) else data
 
     def legacy_stocks(self) -> list[dict]:
         return [s.to_legacy_dict() for s in self.stocks]

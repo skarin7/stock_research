@@ -18,17 +18,17 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  langfuse:
-    image: langfuse/langfuse:latest
-    depends_on:
-      - postgres
-    environment:
-      DATABASE_URL: postgresql://stock:stock@postgres:5432/stock_agents
-      NEXTAUTH_SECRET: change-me
-      SALT: change-me
-      NEXTAUTH_URL: http://localhost:3000
-    ports:
-      - "3000:3000"
+  # langfuse:
+  #   image: langfuse/langfuse:latest
+  #   depends_on:
+  #     - postgres
+  #   environment:
+  #     DATABASE_URL: postgresql://stock:stock@postgres:5432/stock_agents
+  #     NEXTAUTH_SECRET: change-me
+  #     SALT: change-me
+  #     NEXTAUTH_URL: http://localhost:3005
+  #   ports:
+  #     - "3005:3005"
 
   prometheus:
     image: prom/prometheus:latest

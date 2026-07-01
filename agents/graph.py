@@ -27,15 +27,46 @@ from agents.supervisor import next_or_finalize, route_after_analyst, route_after
 logger = logging.getLogger("agents.graph")
 
 
+def _contract_serde():
+    """Serializer that explicitly allows our Pydantic contracts through msgpack.
+
+    AgentState carries Pydantic contract objects (EnrichmentResult, Scorecard,
+    TradeProposal, …) and the RunStatus enum. LangGraph's msgpack serde only
+    reconstructs types on the deserialize side if their (module, name) is
+    whitelisted; unlisted types are (currently) warned-and-allowed but will be
+    blocked — silently degraded to plain dicts, which breaks the ``.stocks`` /
+    ``.ticker`` attribute access downstream. Whitelisting every BaseModel in
+    ``agents.contracts`` (built dynamically so new contracts are covered) plus
+    ``RunStatus`` kills that whole class of checkpoint-serialization bug in one
+    place, independent of how many contract fields the state grows.
+    """
+    from pydantic import BaseModel
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    from agents import contracts as _contracts
+    from agents.state import RunStatus
+
+    allowed = [
+        (obj.__module__, name)
+        for name, obj in vars(_contracts).items()
+        if isinstance(obj, type)
+        and issubclass(obj, BaseModel)
+        and obj.__module__ == "agents.contracts"
+    ]
+    allowed.append((RunStatus.__module__, RunStatus.__name__))
+    return JsonPlusSerializer(allowed_msgpack_modules=allowed)
+
+
 def get_checkpointer():
     """Postgres checkpointer when DATABASE_URL is set; else in-memory (dev/tests)."""
+    serde = _contract_serde()
     if SETTINGS.DATABASE_URL:
         try:
             import psycopg
             from langgraph.checkpoint.postgres import PostgresSaver
 
             conn = psycopg.connect(SETTINGS.DATABASE_URL, autocommit=True)
-            saver = PostgresSaver(conn)
+            saver = PostgresSaver(conn, serde=serde)
             saver.setup()
             logger.info("Using PostgresSaver checkpointer")
             return saver
@@ -43,7 +74,7 @@ def get_checkpointer():
             logger.warning("PostgresSaver unavailable (%s) — falling back to MemorySaver", e)
     from langgraph.checkpoint.memory import MemorySaver
 
-    return MemorySaver()
+    return MemorySaver(serde=serde)
 
 
 def build_graph(checkpointer=None, nodes=None):

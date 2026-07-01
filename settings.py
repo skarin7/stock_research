@@ -107,7 +107,9 @@ class Settings:
     REPORT_MODEL: str = "deepseek/deepseek-chat"
     OPENROUTER_SCORING_MODEL: str = "deepseek/deepseek-chat"
     OPENROUTER_REPORT_MODEL: str = "deepseek/deepseek-chat"
-    OPENROUTER_CHAT_MODEL: str = "deepseek/deepseek-chat"
+    # Chat agent is a ReAct loop (multi-step tool-calling) — needs a stronger
+    # tool-caller than the deepseek default used for deterministic scoring.
+    OPENROUTER_CHAT_MODEL: str = "qwen/qwen3-235b-a22b"
 
     # --- Signal weights / screener filters ---
     SIGNAL_WEIGHTS: dict = field(default_factory=_default_signal_weights)
@@ -244,7 +246,7 @@ class Settings:
             OPENROUTER_BASE_URL=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             OPENROUTER_SCORING_MODEL=os.environ.get("OPENROUTER_SCORING_MODEL", "deepseek/deepseek-chat"),
             OPENROUTER_REPORT_MODEL=os.environ.get("OPENROUTER_REPORT_MODEL", "deepseek/deepseek-chat"),
-            OPENROUTER_CHAT_MODEL=os.environ.get("OPENROUTER_CHAT_MODEL", "deepseek/deepseek-chat"),
+            OPENROUTER_CHAT_MODEL=os.environ.get("OPENROUTER_CHAT_MODEL", "qwen/qwen3-235b-a22b"),
             INTRADAY_SCORE_THRESHOLD=int(os.environ.get("INTRADAY_SCORE_THRESHOLD", "5")),
             INTRADAY_HIGH_CONVICTION=int(os.environ.get("INTRADAY_HIGH_CONVICTION", "7")),
             INTRADAY_TOP_N=int(os.environ.get("INTRADAY_TOP_N", "10")),
